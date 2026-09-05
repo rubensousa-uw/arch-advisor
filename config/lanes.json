@@ -1,12 +1,8 @@
 {
   "config_version": 2,
-
   "_comment": "Profile and lane definitions for arch-advisor. Override by copying this file to .arch-advisor/lanes.json in a project, to ~/.claude/arch-advisor/lanes.json for all projects, or by pointing $ARCH_ADVISOR_CONFIG at it. A profile says who architects and who reviews; a lane says who implements. The profile is chosen by the host you run in, not by a setting: run in Claude Code and you get the claude profile, run in Codex and you get the codex profile, because neither host can run the other vendor's model as its own session.",
-
   "_lanes_note": "Each lane maps 1:1 to a shipped agent file in the claude profile, because Claude Code discovers agents statically at startup: you can change a lane's model, effort rungs and timeout here without touching an agent, but a genuinely new lane also needs a new agents/*.md. The codex profile has no such constraint -- it invokes codex exec directly from the orchestration skill, so a lane there is pure config.",
-
-  "_efforts_note": "Rungs below were verified empirically against the Codex CLI on 2026-09-05, not copied from docs. Both models reject 'minimal'. The API additionally accepts 'none' on gpt-5.6-luna (but not on gpt-6-astra); it is omitted here because an implementation lane should never run without reasoning. 'ultra' is not an API reasoning.effort value at all -- it is a Codex CLI construct that adds internal task delegation -- and it is accepted on both models, contrary to upstream's claim that it is Sol-only. It is verified working but DELIBERATELY NOT DECLARED here: it burns tokens fast enough that it should be an explicit, deliberate opt-in. Add the ultra string to a lane's efforts array to enable it; until then lane.sh refuses it like any other undeclared rung.",
-
+  "_efforts_note": "Upstream's rung table is kept, with two changes the user asked for -- the high-complexity lane is gpt-6-astra rather than gpt-5.6-sol, and 'ultra' is not declared. Rungs were verified empirically against the Codex CLI on 2026-09-05 and cross-checked against OpenAI's published config reference; the two disagree, so read this before editing. (a) Upstream calls 'ultra' Sol-only: false, it runs on Luna too. It is a Codex CLI construct that adds internal task delegation and burns tokens fast, which is why it is undeclared here. (b) 'minimal' is in OpenAI's documented enum but is rejected by both models. (c) 'max' is declared here because upstream lists it and it is verified working on both models, but it appears in NO published source -- not the config reference, which stops at xhigh, and not Artificial Analysis's v4.2 list, which benchmarks gpt-6-astra only at low/medium/high/xhigh. Treat it as load-bearing on measurement alone. (d) 'none' is real on Luna but omitted: an implementation lane should not run without reasoning. NO DEFAULT RUNG IS SET ANYWHERE, by design: the architect names one per task in the spec. If it omits one, codex falls through to the user's own config.toml default.",
   "profiles": {
     "claude": {
       "host": "claude-code",
@@ -15,10 +11,14 @@
       "advisor_kind": "claude-agent",
       "advisor_model": "fable",
       "advisor_fallback": "opus",
-      "lanes": ["routine"],
-      "describe": "Claude Fable 5.1 architects and reviews; Codex Luna implements. Cross-vendor: the model that reviews the code did not write it."
+      "lanes": [
+        "routine",
+        "complex"
+      ],
+      "describe": "Claude Fable 5.1 architects and reviews; Codex Luna implements the routine work and Codex Astra takes the escalations. Cross-vendor in both directions that matter: the model that reviews the code did not write it, and neither implementer shares a lineage with the reviewer.",
+      "advisor_effort": null,
+      "_advisor_effort_note": "Not settable here: the claude profile's advisor is a Claude Code subagent, and Claude Code takes subagent reasoning effort from the session (/effort), not per call. Raise the session effort before a final review that deserves it."
     },
-
     "codex": {
       "host": "codex",
       "architect": "gpt-6-astra",
@@ -26,26 +26,40 @@
       "advisor_kind": "codex-review",
       "advisor_model": "gpt-6-astra",
       "advisor_fallback": null,
-      "lanes": ["routine"],
-      "describe": "Codex GPT-6 Astra architects and reviews via the built-in codex review; Codex Luna implements. No Claude anywhere, and no driver layer -- the session shells out to codex exec itself. Single-vendor: Astra and Luna share a training lineage, so the review is a fresh-context check rather than an independent-model one."
+      "lanes": [
+        "routine"
+      ],
+      "describe": "Codex GPT-6 Astra architects and reviews via the built-in codex review; Codex Luna implements. No Claude anywhere, and no driver layer -- the session shells out to codex exec itself. Single-vendor: Astra and Luna share a training lineage, so the review is a fresh-context check rather than an independent-model one.",
+      "advisor_effort": null,
+      "_advisor_effort_note": "Left unpinned to match upstream doctrine, where the advisor inherits rather than declaring a rung. codex review has no session to inherit from, so it falls through to model_reasoning_effort in the user's ~/.codex/config.toml. Set this to a rung to pin it instead, and the skill will pass -c model_reasoning_effort to codex review."
     }
   },
-
   "lanes": {
     "routine": {
       "agent": "implementer-routine",
       "model": "gpt-5.6-luna",
-      "efforts": ["low", "medium", "high", "xhigh", "max"],
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "timeout_seconds": 600,
       "route_when": "All implementation work in both shipped profiles. The spec fully determines the outcome: mechanical edits, renames, wiring, boilerplate, tests that mirror an existing pattern, ordinary features with a design decision or two."
     },
-
     "complex": {
       "agent": "implementer-complex",
       "model": "gpt-6-astra",
-      "efforts": ["low", "medium", "high", "xhigh", "max"],
+      "efforts": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "timeout_seconds": 1800,
-      "route_when": "Defined but NOT active in either shipped profile -- add the complex string to a profile's lanes array to enable it. Judgment the spec cannot capture decides the outcome: subtle concurrency, non-trivial algorithms, security-sensitive paths, gnarly debugging, wide-blast-radius refactors, or the routine lane already failed on a corrected spec."
+      "route_when": "Judgment the spec cannot capture decides the outcome: subtle concurrency, non-trivial algorithms, security-sensitive paths, gnarly debugging, wide-blast-radius refactors, or the routine lane already failed on a corrected spec. Escalate at high; a task that does not warrant high is a task for the routine lane at Luna prices."
     }
   }
 }
