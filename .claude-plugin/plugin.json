@@ -1,6 +1,6 @@
 {
   "name": "arch-advisor",
-  "version": "6.0.0",
+  "version": "6.1.0",
   "description": "Run your Claude session as a full-time architect: it writes specs and verdicts and picks a reasoning effort per task, configurable Codex lanes do the typing, and a clean-context advisor reviews every deliverable before it ships. Lane models and effort rungs live in lanes.json — swap in a new Codex model without editing an agent.",
   "author": {
     "name": "Ruben Sousa",

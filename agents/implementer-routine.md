@@ -1,6 +1,6 @@
 ---
 name: implementer-routine
-description: Default (routine) implementation lane, driving the OpenAI Codex CLI (`codex exec`) at whatever reasoning effort the architect names in the spec. The model is not hardcoded — it comes from the `routine` lane in lanes.json (ships as GPT-5.6 Luna). Route routine, well-specified work here: the spec fully determines the outcome and Codex does the typing at a fraction of the architect's token cost, from a different model family than the session. Receives the standard six-part spec; drives codex to write the code; returns a structured report with verification evidence. Requires the `codex` CLI installed and authenticated — reports a structured error if it is missing, never silently substitutes itself.
+description: Default (routine) implementation lane, driving the OpenAI Codex CLI (`codex exec`) at whatever reasoning effort the architect names in the spec. The model is not hardcoded — it comes from the `routine` lane in lanes.json (ships as GPT-6 Luna). Route routine, well-specified work here: the spec fully determines the outcome and Codex does the typing at a fraction of the architect's token cost, from a different model family than the session. Receives the standard six-part spec; drives codex to write the code; returns a structured report with verification evidence. Requires the `codex` CLI installed and authenticated — reports a structured error if it is missing, never silently substitutes itself.
 model: sonnet
 tools: Bash, Read, Grep, Glob
 ---

@@ -3,12 +3,12 @@
 
   "_comment": "Lane definitions for arch-advisor. Override by copying this file to .arch-advisor/lanes.json in a project, to ~/.claude/arch-advisor/lanes.json for all projects, or by pointing $ARCH_ADVISOR_CONFIG at it. Each lane maps 1:1 to a shipped agent file: you can change a lane's model, effort rungs and timeout here without touching an agent, but adding a genuinely new lane also needs a new agents/*.md file, because Claude Code discovers agents statically at startup.",
 
-  "_efforts_note": "Rungs below were verified empirically against the Codex CLI on 2026-09-05, not copied from docs. Both models reject 'minimal'. The API additionally accepts 'none' on gpt-5.6-luna (but not on gpt-6-astra); it is omitted here because an implementation lane should never run without reasoning. 'ultra' is not an API reasoning.effort value at all -- it is a Codex CLI construct that adds internal task delegation -- and it is accepted on both models, contrary to upstream's claim that it is Sol-only. It is verified working but DELIBERATELY NOT DECLARED here: it burns tokens fast enough that it should be an explicit, deliberate opt-in. Add the ultra string to a lane's efforts array to enable it; until then lane.sh refuses it like any other undeclared rung.",
+  "_efforts_note": "Rungs below were verified empirically against the Codex CLI (gpt-6-astra on 2026-09-05, gpt-6-luna on 2026-09-22), not copied from docs. Both models reject 'minimal'. The API additionally accepts 'none' on gpt-6-luna (but not on gpt-6-astra); it is omitted here because an implementation lane should never run without reasoning. 'ultra' is not an API reasoning.effort value at all -- it is a Codex CLI construct that adds internal task delegation -- and codex exec accepts it on both models (the TUI picker offers it only on Astra). It is verified working but DELIBERATELY NOT DECLARED here: it burns tokens fast enough that it should be an explicit, deliberate opt-in. Add the ultra string to a lane's efforts array to enable it; until then lane.sh refuses it like any other undeclared rung.",
 
   "lanes": {
     "routine": {
       "agent": "implementer-routine",
-      "model": "gpt-5.6-luna",
+      "model": "gpt-6-luna",
       "efforts": ["low", "medium", "high", "xhigh", "max"],
       "timeout_seconds": 600,
       "route_when": "The spec fully determines the outcome: mechanical edits, renames, wiring, boilerplate, tests that mirror an existing pattern, ordinary features with a design decision or two."
