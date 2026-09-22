@@ -6,7 +6,7 @@ Claude Code lets every subagent run on a different model — and lets the sessio
 
 | Lane | Ships as | Invocation | Route here when |
 |---|---|---|---|
-| `routine` | GPT-5.6 Luna | `implementer-routine` (default) | The spec fully determines the outcome — Codex does the typing via the [Codex CLI](https://github.com/openai/codex) |
+| `routine` | GPT-6 Luna | `implementer-routine` (default) | The spec fully determines the outcome — Codex does the typing via the [Codex CLI](https://github.com/openai/codex) |
 | `complex` | GPT-6 Astra | `implementer-complex` | Judgment the spec can't capture decides the outcome: subtle concurrency, hard debugging, security-sensitive paths, wide refactors — and the second runner when you race two lanes on one spec |
 | review | strongest Claude you have | `arch-advisor` | Commitment boundaries, and always once at the end of a deliverable |
 
@@ -59,7 +59,7 @@ Each lane declares four things:
 ```json
 "routine": {
   "agent": "implementer-routine",
-  "model": "gpt-5.6-luna",
+  "model": "gpt-6-luna",
   "efforts": ["low", "medium", "high", "xhigh", "max"],
   "timeout_seconds": 600
 }
@@ -69,11 +69,11 @@ Each lane declares four things:
 
 ### Effort rungs, measured
 
-The shipped rungs were probed against the live CLI on 2026-09-05 rather than copied from documentation, which turned out to matter — upstream's lists are wrong in two places:
+The shipped rungs were probed against the live CLI (Astra on 2026-09-05, GPT-6 Luna on 2026-09-22) rather than copied from documentation. That turned out to matter: when this fork shipped on gpt-5.6-luna, upstream's rung lists were wrong in two places (`ultra` is not Sol-only, and `none` is real on Luna).
 
 | | `minimal` | `none` | `low`–`max` | `ultra` |
 |---|---|---|---|---|
-| `gpt-5.6-luna` | rejected | accepted by the API | accepted | **accepted** (upstream says Sol-only) |
+| `gpt-6-luna` | rejected | accepted by `codex exec` | accepted by `codex exec` (each rung probed) | accepted by `codex exec`, though the TUI picker only offers it on Astra |
 | `gpt-6-astra` | rejected | rejected | accepted | accepted |
 
 `ultra` is not an API `reasoning.effort` value at all — the API's own error message lists only `low, medium, high, xhigh, max`. It is a Codex CLI construct that adds internal task delegation, and it passes on both models.
