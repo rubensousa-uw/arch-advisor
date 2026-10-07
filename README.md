@@ -1,26 +1,24 @@
 # arch-advisor
 
-**Your Claude session runs the show as an architect. Codex does the typing, on whichever model you configure, at the effort each task deserves. A clean-context advisor reviews before anything ships.**
+Claude owns architecture, coordination and verification. Codex implements through
+configurable Luna and Sol lanes. Two independent read-only advisors review each
+deliverable: Claude Opus 5.5 and Codex Astra.
 
-Claude Code lets every subagent run on a different model — and lets the session itself run on a different model than its subagents. This plugin exploits that with the **architect pattern**: your session acts as a full-time architect. It owns requirements, decomposition, specs, and verification — routes every implementation task to the right lane at the right reasoning effort — and gets a clean-context review of the finished work before calling anything done.
+| Component | Role | Default model |
+|---|---|---|
+| Claude session | Architecture and coordination | Your choice via `/model` |
+| `implementer-routine` | Routine implementation through Codex CLI | `gpt-6-luna` |
+| `implementer-complex` | Complex implementation through Codex CLI | `gpt-6.1-sol` |
+| `arch-advisor` | Read-only advice and final review | `claude-opus-5-5` |
+| `2nd-advisor` | Independent read-only advice and final review through Codex CLI | `gpt-6-astra` |
 
-| Lane | Ships as | Invocation | Route here when |
-|---|---|---|---|
-| `routine` | GPT-6 Luna | `implementer-routine` (default) | The spec fully determines the outcome — Codex does the typing via the [Codex CLI](https://github.com/openai/codex) |
-| `complex` | GPT-6 Astra | `implementer-complex` | Judgment the spec can't capture decides the outcome: subtle concurrency, hard debugging, security-sensitive paths, wide refactors — and the second runner when you race two lanes on one spec |
-| review | strongest Claude you have | `arch-advisor` | Commitment boundaries, and always once at the end of a deliverable |
+The Codex agents have lightweight Claude wrappers. Their frontmatter `model`
+selects the wrapper; the actual Codex model comes from `config/lanes.json`.
+The Claude reviewer pins Opus 5.5 in `agents/arch-advisor.md`.
 
-## What this fork changes
-
-This is a fork of [DannyMac180/fable-advisor](https://github.com/DannyMac180/fable-advisor), whose architecture and prose it keeps almost entirely. One thing is different, and it is the reason the fork exists:
-
-**Nothing is hardcoded to a model.** Upstream bakes `gpt-5.6-luna` and `gpt-5.6-sol` into the agent files, along with each one's legal effort rungs. Here, every lane's model, effort rungs and wall-clock cap live in [`config/lanes.json`](config/lanes.json), resolved at runtime by [`scripts/lane.sh`](scripts/lane.sh). Pointing a lane at a new Codex model is a config edit, not an agent rewrite — which is what you want the week a new model ships.
-
-The plugin is also no longer named after one specific Claude model, because the architect model is your choice (`/model`), not the plugin's.
-
-**No Sol lane.** Upstream escalates to `gpt-5.6-sol`; this fork escalates to `gpt-6-astra` instead. Re-point it in `lanes.json` if you disagree — that is the whole point of the config.
-
-**Effort validation now actually happens.** The `codex` CLI does *not* validate `model_reasoning_effort` client-side: hand it a garbage rung and it prints `reasoning effort: garbage` and lets the API reject the run minutes later. Upstream's "refuse rather than round" promise rests entirely on a list written in prose inside a markdown file. Here `lane.sh validate` checks the requested rung against the lane's declared rungs and fails closed, before a token is spent.
+This is a fork of [DannyMac180/fable-advisor](https://github.com/DannyMac180/fable-advisor).
+Codex models, allowed reasoning efforts and wall-clock caps are resolved at runtime
+by `scripts/lane.sh`; effort is chosen per task and validated before a call.
 
 ## Install
 
@@ -29,111 +27,111 @@ claude plugin marketplace add rubensousa-uw/arch-advisor
 claude plugin install arch-advisor@arch-advisor
 ```
 
-Requires `jq` (`brew install jq`) for lane resolution, and the [OpenAI Codex CLI](https://github.com/openai/codex) installed and authenticated (`npm i -g @openai/codex`, then `codex login`) for the implementation lanes.
+Requires `jq`, an installed and authenticated Codex CLI (`codex login`), and
+access to the configured models. For consultation timeouts on macOS, install
+coreutils (`gtimeout`); without `gtimeout` or `timeout`, the helper warns and
+runs without a wall-clock cap. Restart Claude Code after updating the plugin
+so it discovers the new agent. Select your session model with `/model`.
 
-Then set your session model — anything capable will do; the doctrine doesn't care which:
+## Configure Codex lanes
 
-```
-/model
-```
+Run `scripts/lane.sh list` to see the effective configuration. The first existing
+configuration wins:
 
-## Configuring the lanes
-
-See what is in effect:
-
-```bash
-scripts/lane.sh list
-```
-
-To change it, copy `config/lanes.json` to whichever scope you want and edit it. The first match wins:
-
-| Precedence | Location | Scope |
+| Priority | Location | Scope |
 |---|---|---|
-| 1 | `$ARCH_ADVISOR_CONFIG` | Explicit, per-invocation |
-| 2 | `./.arch-advisor/lanes.json` | This project |
-| 3 | `~/.claude/arch-advisor/lanes.json` | All your projects |
-| 4 | `config/lanes.json` | Plugin default |
+| 1 | `$ARCH_ADVISOR_CONFIG` | Explicit override |
+| 2 | `./.arch-advisor/lanes.json` | Current project |
+| 3 | `~/.claude/arch-advisor/lanes.json` | All projects |
+| 4 | Plugin `config/lanes.json` | Defaults |
 
-Each lane declares four things:
+Copy the default file to the desired scope and edit it. Keep all three lane
+entries; adding a lane also requires an agent definition under `agents/`.
 
 ```json
-"routine": {
-  "agent": "implementer-routine",
-  "model": "gpt-6-luna",
+"2nd-advisor": {
+  "agent": "2nd-advisor",
+  "model": "gpt-6-astra",
   "efforts": ["low", "medium", "high", "xhigh", "max"],
-  "timeout_seconds": 600
+  "timeout_seconds": 900
 }
 ```
 
-`efforts: null` means *undeclared* — the lane then omits the effort flag entirely and lets codex fall back to your `~/.codex/config.toml` default, flagging it in the report. Use it when you add a model whose rungs you have not confirmed.
+All shipped Codex lanes declare `low`, `medium`, `high`, `xhigh` and `max`.
+`none`, `minimal` and `ultra` are omitted. Earlier repository CLI probes
+(Astra on 2026-09-05, Luna on 2026-09-22) reported additional options, including
+`none`/`ultra` on Luna; those historical observations do not enable them here.
+CLI settings and API model support can differ; see the
+[official model guidance](https://learn.chatgpt.com/docs/models) for current support.
+`efforts: null` means undeclared. With no requested effort, callers omit the flag
+and report that Codex used its own default. An explicit effort is rejected before
+any Codex call when the allowlist is null; declare the rungs to enable it. A
+requested effort is never silently dropped. Account access and accepted efforts should be checked
+with a live smoke test; local validation only enforces the declared allowlist.
 
-### Effort rungs, measured
+Changing Codex model selection is a configuration edit. Changing the Claude
+reviewer's model is an edit to `agents/arch-advisor.md`; `opus` is a moving alias,
+so the default uses the exact `claude-opus-5-5` ID.
 
-The shipped rungs were probed against the live CLI (Astra on 2026-09-05, GPT-6 Luna on 2026-09-22) rather than copied from documentation. That turned out to matter: when this fork shipped on gpt-5.6-luna, upstream's rung lists were wrong in two places (`ultra` is not Sol-only, and `none` is real on Luna).
+## Use the advisors
 
-| | `minimal` | `none` | `low`–`max` | `ultra` |
-|---|---|---|---|---|
-| `gpt-6-luna` | rejected | accepted by `codex exec` | accepted by `codex exec` (each rung probed) | accepted by `codex exec`, though the TUI picker only offers it on Astra |
-| `gpt-6-astra` | rejected | rejected | accepted | accepted |
+Ask Claude to use `arch-advisor` or `2nd-advisor` on a decision, or activate
+`arch-advisor:orchestration` for the complete architect workflow. For example:
 
-`ultra` is not an API `reasoning.effort` value at all — the API's own error message lists only `low, medium, high, xhigh, max`. It is a Codex CLI construct that adds internal task delegation, and it passes on both models.
+> Use 2nd-advisor to review this plan. Workspace: /absolute/path/to/project.
+> Check the API contract and migration risk. REASONING: high. Do not change files.
 
-**`ultra` ships disabled**, even though it is verified working, because it burns tokens fast enough to deserve a deliberate opt-in rather than a default. `lane.sh` refuses it like any undeclared rung; add `"ultra"` to a lane's `efforts` array when you actually want it. `none` is real on Luna but likewise omitted: an implementation lane should not run without reasoning.
-
-**One honest limitation:** a lane maps 1:1 to an agent file, because Claude Code discovers agents statically at startup. You can re-point the two shipped lanes at any models you like without touching an agent — but a genuinely *third* lane also needs a new `agents/*.md`, copied from an existing one.
-
-## Testing it
-
-Three levels, cheapest first.
-
-**Free — the routing logic, no model calls.** Everything except codex itself:
-
-```bash
-scripts/lane.sh list                    # what is configured
-scripts/lane.sh validate routine xhigh  # exit 0
-scripts/lane.sh validate routine ultra  # exit 4, refuses rather than rounding
-scripts/smoke.sh --dry-run              # print each lane's exact codex command
-```
-
-**A few thousand tokens — that codex actually answers.** One tiny read-only call per lane, at the lowest declared rung:
+The second advisor reads referenced files and returns its verdict through:
 
 ```bash
-scripts/smoke.sh              # every lane
-scripts/smoke.sh complex      # one lane
-scripts/smoke.sh --effort max # at a specific rung
+scripts/second-advisor.sh --cd /absolute/path/to/project --effort high <<'QUESTION'
+Review the proposed migration against docs/plan.md and the current schema.
+Return the decisive risks and missing evidence. Do not change files.
+QUESTION
 ```
 
-It fails loudly on an unauthenticated CLI, a model your account cannot reach, a spent quota, or a rung the API rejects — the four things that actually break a lane in practice.
+The helper resolves the `2nd-advisor` lane relative to the target workspace,
+validates the effort, passes the prompt through stdin, and uses the shared
+`scripts/run-lane.sh` to run `codex exec`
+with `--sandbox read-only` and approvals disabled. Temporary prompt and result
+files are removed afterwards. No code change is expected from this lane, so an
+unchanged diff is a successful consultation rather than an implementation refusal.
+Missing CLI, invalid configuration, unavailable models and timeouts are reported
+explicitly; the Claude wrapper never silently substitutes its own advice.
 
-**A real task — the whole pattern.** Ask the architect for something small in a scratch repo and watch it route, delegate, verify and review. This is the only level that exercises the spec contract and the empty-diff check, and the only one that costs real money.
+At commitment boundaries, consult the Claude advisor and add the Astra advisor
+for significant decisions or persistent failures. At the end of each deliverable,
+obtain **both** reviews before reporting done. Give them the same goal, constraints,
+workspace, paths, diff/base reference and verification evidence without showing
+either the other's first verdict. The architect reconciles the findings, verifies
+fixes, and reports disagreements or unavailable reviews.
 
-## Use it
+Routine and complex agents use the same runner with `workspace-write`
+sandboxes. Every implementation delegation must explicitly supply
+`WORKSPACE: /absolute/path/to/project`; a missing workspace is a blocker. The
+runner enters it before resolving overrides and uses it for Codex `--cd`. The advisors never implement. The optional official Codex plugin can
+add specialized review commands, but is not required for the second advisor.
 
-Just ask for work — the orchestration skill routes it:
+## Validate
 
+Without inference calls:
+
+```bash
+scripts/lane.sh list
+scripts/lane.sh validate routine high
+scripts/smoke.sh --dry-run
+python3 -m unittest discover -s tests -v
+claude plugin validate .
 ```
-Add rate limiting to the public API. Design it, delegate the implementation,
-and verify with evidence before you call it done.
+
+The smoke test is a minimal capability probe: it checks model access,
+authentication and one effort per lane (uses tokens). It uses the shared runner
+in read-only mode, applies the configured timeout when a timeout binary exists,
+and requires both exit status 0 and an exact `OK` in the final-message file. It
+does not verify implementation edits, advisory verdicts or all effort levels.
+Run it against the intended workspace:
+
+```bash
+scripts/smoke.sh --cd /absolute/path/to/project
+scripts/smoke.sh 2nd-advisor --cd /absolute/path/to/project --effort high
 ```
-
-The architect writes the spec, picks the lane and effort, reads the diff and verification evidence when the report comes back, sends the finished work to `arch-advisor` for final review, and only then reports done.
-
-To make the doctrine always-on, add one line to your project's `CLAUDE.md`:
-
-```
-You are the architect — minimize your own token volume. Delegate all implementation
-through the orchestration skill's routing table (never type code yourself), name a
-reasoning effort per task, delegate broad codebase exploration to cheap read-only
-agents, verify evidence before accepting any lane's report, and get an arch-advisor
-review before reporting any deliverable done.
-```
-
-## Commitment boundaries and final review
-
-Even the architect gets a second opinion. The `arch-advisor` agent is a read-only skeptic on the same model as the architect but in a clean context — consulted before architecture decisions, migrations and API designs, whenever a problem has resisted two attempts, and **always once at the end of a deliverable**, where it reads the accumulated diff with fresh eyes, against the stated goal rather than the conversation, and returns ship / fix-first / rethink. It never implements.
-
-It is a fresh-eyes check, not an independent-model check — the cross-vendor independence comes from the Codex lanes producing the code. For an independent-model review on top, the official [Codex plugin](https://github.com/openai/codex-plugin-cc)'s `/codex:adversarial-review` slots in just before it.
-
-## Credit
-
-The pattern, the orchestration doctrine, the spec contract and nearly all of the prose are [Dan McAteer's](https://github.com/DannyMac180). He writes [Attention Heads](https://attentionheads.substack.com/), where the pattern is explained at length. MIT licensed, upstream and here.

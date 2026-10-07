@@ -51,7 +51,7 @@ case "$cmd" in
   list)
     printf 'lanes.json: %s\n\n' "$CONFIG"
     jq -r '.lanes | to_entries[] |
-      "  \(.key)\n    agent:   \(.value.agent)\n    model:   \(.value.model)\n    efforts: \(if .value.efforts == null then "(not declared — the flag is omitted and codex uses your ~/.codex/config.toml default)" else (.value.efforts | join(", ")) end)\n    timeout: \(.value.timeout_seconds)s\n"' "$CONFIG"
+      "  \(.key)\n    agent:   \(.value.agent)\n    model:   \(.value.model)\n    efforts: \(if .value.efforts == null then "(not declared — omit for codex default; explicit effort is refused)" else (.value.efforts | join(", ")) end)\n    timeout: \(.value.timeout_seconds)s\n"' "$CONFIG"
     ;;
 
   resolve)
@@ -60,7 +60,7 @@ case "$cmd" in
     # Values are single-quoted: LANE_EFFORTS is a space-separated list, and an
     # unquoted eval of it would run "medium high xhigh max" as a command.
     jq -r --arg l "$lane" '
-      def q: "\u0027" + (tostring | gsub("\u0027"; "\u0027\\\\\u0027\u0027")) + "\u0027";
+      def q: tostring | @sh;
       .lanes[$l] |
       "LANE_NAME=" + ($l | q),
       "LANE_MODEL=" + (.model | q),

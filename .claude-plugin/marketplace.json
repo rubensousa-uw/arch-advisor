@@ -1,7 +1,7 @@
 {
   "name": "arch-advisor",
   "metadata": {
-    "description": "Model-routing patterns for Claude Code: architect-as-orchestrator with configurable Codex implementation lanes, per-task reasoning effort validated against each lane, and a mandatory clean-context reviewer before anything ships."
+    "description": "Claude orchestration, configurable Codex implementation lanes, and independent Opus 5.5 plus Astra read-only advisors."
   },
   "owner": {
     "name": "Ruben Sousa",
@@ -11,7 +11,7 @@
     {
       "name": "arch-advisor",
       "source": "./",
-      "description": "Architect-as-orchestrator: your Claude session writes specs and verdicts, routing routine implementation to one Codex lane and high-complexity one-offs to another (models and effort rungs configured in lanes.json, effort chosen per task) — with a mandatory clean-context review before anything ships."
+      "description": "Claude orchestration, configurable Codex implementation lanes, and independent Opus 5.5 plus Astra read-only advisors."
     }
   ]
 }

@@ -1,70 +1,63 @@
 #!/bin/sh
-# arch-advisor — smoke test the codex side of each lane.
-#
-# Proves the exact invocation a lane agent will make actually reaches the model:
-# lane resolves, effort validates, codex authenticates, the model answers.
-# Deliberately tiny -- a few thousand tokens per lane, not a real task.
-#
-#   smoke.sh              test every configured lane (costs a few tokens)
-#   smoke.sh --dry-run    print the commands without calling codex (free)
-#   smoke.sh <lane>       test one lane only
-#   smoke.sh --effort max test at a specific rung instead of the lowest
-
+# Capability probe: resolve lanes, validate one effort per lane and request OK.
+# Uses the shared runner but deliberately uses read-only for every lane. It does
+# not test implementation edits, review verdicts or every allowed effort.
+# Usage: smoke.sh [LANE] [--cd DIR] [--effort RUNG] [--dry-run]
 set -eu
-
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
-LANE_SH="$script_dir/lane.sh"
-[ -x "$LANE_SH" ] || { echo "smoke: cannot find lane.sh next to this script" >&2; exit 3; }
-
-DRY=0; EFFORT=""; ONLY=""
-while [ $# -gt 0 ]; do
+DRY=0; EFFORT=""; ONLY=""; WORKSPACE="$PWD"
+while [ "$#" -gt 0 ]; do
   case "$1" in
-    --dry-run) DRY=1 ;;
-    --effort)  EFFORT="${2:-}"; shift ;;
-    -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
-    -*)        echo "smoke: unknown flag $1" >&2; exit 2 ;;
-    *)         ONLY="$1" ;;
+    --dry-run) DRY=1; shift ;;
+    --effort|--cd)
+      [ "$#" -ge 2 ] && [ -n "$2" ] || { echo "smoke: missing value for $1" >&2; exit 2; }
+      case "$1" in --effort) EFFORT="$2" ;; --cd) WORKSPACE="$2" ;; esac
+      shift 2 ;;
+    -h|--help) sed -n '2,5p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -*) echo "smoke: unknown flag $1" >&2; exit 2 ;;
+    *) [ -z "$ONLY" ] || { echo 'smoke: only one lane may be selected' >&2; exit 2; }; ONLY="$1"; shift ;;
   esac
-  shift
 done
-
-command -v codex >/dev/null 2>&1 || { echo "smoke: codex not on PATH" >&2; exit 3; }
-[ "$DRY" = "1" ] || codex login status >/dev/null 2>&1 || { echo "smoke: codex not authenticated (run: codex login)" >&2; exit 3; }
-
-CONFIG=$("$LANE_SH" config-path)
+[ -d "$WORKSPACE" ] || { echo "smoke: workspace does not exist: $WORKSPACE" >&2; exit 2; }
+WORKSPACE=$(CDPATH= cd -- "$WORKSPACE" && pwd)
+cd -- "$WORKSPACE"
+if CONFIG=$("$script_dir/lane.sh" config-path); then :; else rc=$?; exit "$rc"; fi
 LANES=$(jq -r '.lanes | keys_unsorted[]' "$CONFIG")
-[ -n "$ONLY" ] && LANES="$ONLY"
-
+[ -z "$ONLY" ] || LANES="$ONLY"
+scratch=$(mktemp -d "${TMPDIR:-/tmp}/arch-smoke.XXXXXX")
+trap 'rm -rf -- "$scratch"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 rc=0
 for lane in $LANES; do
-  eval "$("$LANE_SH" resolve "$lane")"
-
-  # Lowest declared rung unless one was asked for: cheapest thing that still proves the path.
-  e="$EFFORT"
-  [ -z "$e" ] && [ "$LANE_EFFORTS_DECLARED" = "1" ] && e=$(echo "$LANE_EFFORTS" | cut -d' ' -f1)
-  if [ -n "$e" ] && ! "$LANE_SH" validate "$lane" "$e" 2>/dev/null; then
-    printf '%-9s SKIP    effort %s not declared for %s\n' "$lane" "$e" "$LANE_MODEL"; rc=1; continue
-  fi
-
-  if [ "$DRY" = "1" ]; then
-    printf '%-9s DRY     codex exec --model %s%s --sandbox read-only\n' \
-      "$lane" "$LANE_MODEL" "$([ -n "$e" ] && echo " -c model_reasoning_effort=$e")"
-    continue
-  fi
-
-  out=$(codex exec --skip-git-repo-check --sandbox read-only \
-          --model "$LANE_MODEL" \
-          ${e:+-c model_reasoning_effort=$e} \
-          "Reply with exactly: OK" < /dev/null 2>&1) || true
-
-  if echo "$out" | grep -q '"message":'; then
-    printf '%-9s FAIL    %s\n' "$lane" "$(echo "$out" | grep -o '"message": "[^"]*"' | head -1 | cut -c12-)"
-    rc=1
-  elif echo "$out" | grep -qx 'OK'; then
-    printf '%-9s ok      %s effort=%s tokens=%s\n' "$lane" "$LANE_MODEL" "${e:-<codex default>}" \
-      "$(echo "$out" | grep -A1 'tokens used' | tail -1 | tr -d ' ')"
+  if resolved=$("$script_dir/lane.sh" resolve "$lane"); then
+    eval "$resolved"
   else
-    printf '%-9s FAIL    no clean reply from %s\n' "$lane" "$LANE_MODEL"; rc=1
+    status=$?; printf '%s FAIL resolve_exit=%s\n' "$lane" "$status"; rc=1; continue
+  fi
+  e="$EFFORT"
+  if [ -z "$e" ] && [ "$LANE_EFFORTS_DECLARED" = 1 ]; then
+    e=$(printf '%s\n' "$LANE_EFFORTS" | cut -d' ' -f1)
+  fi
+  set -- "$script_dir/run-lane.sh" "$lane" --cd "$WORKSPACE" \
+    --sandbox read-only --output-last-message "$scratch/final"
+  [ -z "$e" ] || set -- "$@" --effort "$e"
+  [ "$DRY" = 0 ] || set -- "$@" --dry-run
+  # A later lane must never reuse a successful result from a previous one.
+  rm -f -- "$scratch/final"
+  status=0
+  printf 'Reply with exactly: OK\n' | "$@" > "$scratch/log" 2>&1 || status=$?
+  if [ "$status" -ne 0 ]; then
+    printf '%s FAIL codex_or_preflight_exit=%s\n' "$lane" "$status"
+    cat "$scratch/log"; rc=1
+  elif [ "$DRY" = 1 ]; then
+    cat "$scratch/log"
+  elif [ -f "$scratch/final" ] && [ "$(cat "$scratch/final")" = OK ]; then
+    sed -n '/^WARN: no timeout binary;/p' "$scratch/log" >&2
+    printf '%s ok %s effort=%s\n' "$lane" "$LANE_MODEL" "${e:-<codex default>}"
+  else
+    sed -n '/^WARN: no timeout binary;/p' "$scratch/log" >&2
+    printf '%s FAIL no exact OK final message from %s\n' "$lane" "$LANE_MODEL"; rc=1
   fi
 done
-exit $rc
+exit "$rc"

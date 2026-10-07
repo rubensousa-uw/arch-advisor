@@ -1,1 +1,4 @@
 demo/
+
+# Python validation tests
+__pycache__/

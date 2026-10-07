@@ -1,17 +1,17 @@
 ---
 name: orchestration
-description: Routing doctrine for the architect-as-orchestrator pattern — how a Claude session delegates routine implementation to the routine codex lane, escalates high-complexity one-offs to the complex lane, picks a reasoning effort per task, and gets every deliverable reviewed by the advisor before reporting done. Lane models and effort rungs are configuration, not hardcoded. USE WHEN delegating implementation work, choosing between the implementer-routine and implementer-complex lanes, choosing a reasoning effort for a lane, writing a spec for a subagent, deciding whether to consult arch-advisor, using the Codex plugin's review skills, managing session cost or token spend, or running any multi-task build where the session is the architect.
+description: Routing doctrine for the architect-as-orchestrator pattern — how a Claude session delegates routine implementation to the routine codex lane, escalates high-complexity one-offs to the complex lane, picks a reasoning effort per task, and gets every deliverable reviewed independently by Claude Opus 5.5 and Codex Astra before reporting done. Lane models and effort rungs are configuration, not hardcoded. USE WHEN delegating implementation work, choosing between the implementer-routine and implementer-complex lanes, choosing a reasoning effort for a lane, writing a spec for a subagent, deciding whether to consult arch-advisor, using the Codex plugin's review skills, managing session cost or token spend, or running any multi-task build where the session is the architect.
 ---
 
 # Orchestration — the architect's routing doctrine
 
-The session is the architect: it owns requirements, architecture, decomposition, specs, routing, and verification. It should almost never type implementation code. Every implementation task gets routed to the cheapest lane and the lowest reasoning effort that is adequate for it — escalation to the complex lane, or to a higher effort, is deliberate, per task, never a fixed binding — and every finished deliverable gets an advisor review before the architect reports done.
+The session is the architect: it owns requirements, architecture, decomposition, specs, routing, and verification. It should almost never type implementation code. Every implementation task gets routed to the cheapest lane and the lowest reasoning effort that is adequate for it — escalation to the complex lane, or to a higher effort, is deliberate, per task, never a fixed binding — and every finished deliverable gets both advisor reviews before the architect reports done.
 
-**Lane models are configuration.** No model slug is hardcoded in an agent. Each lane's codex model, its legal effort rungs and its wall-clock cap live in `lanes.json`, resolved at runtime by `scripts/lane.sh`. Run `lane.sh list` to see what is actually configured before you route — the tables below describe the shipped defaults, and the config is the source of truth.
+**Lane models are configuration.** No Codex model slug is hardcoded in an agent. Each lane's codex model, its legal effort rungs and its wall-clock cap live in `lanes.json`, resolved at runtime by `scripts/lane.sh`. Run `lane.sh list` to see what is actually configured before you route — the tables below describe the shipped defaults, and the config is the source of truth.
 
 ## Cost discipline — the prime directive
 
-The economics of this pattern: the Claude architect orchestrates (judgment-heavy, volume-light), the routine lane does the typing (volume-heavy, cheap, cross-vendor), the complex lane takes the hard one-offs (cross-vendor, expensive, only when judgment decides the outcome), and the advisor reviews in a clean context before anything ships. Three rules follow.
+The economics of this pattern: the Claude architect orchestrates (judgment-heavy, volume-light), the routine lane does the typing (volume-heavy, cheap, cross-vendor), the complex lane takes the hard one-offs (cross-vendor, expensive, only when judgment decides the outcome), and both advisors review independently in clean contexts before anything ships. Three rules follow.
 
 **Emit judgment, not volume.** The architect's output is decomposition, specs, routing decisions, verdicts on diffs, and short reports. It does not type implementation code, test bodies, boilerplate, or config files. A code block longer than an interface signature or a few illustrative lines is a spec that hasn't been delegated yet — stop and delegate it. Fixing a lane's bug by hand is the same failure in disguise: send a corrected spec back to the lane instead.
 
@@ -26,10 +26,11 @@ What stays with the architect regardless of cost: decomposition, interface desig
 | Lane | Ships as | Invoke | Route here when |
 |---|---|---|---|
 | `routine` | GPT-6 Luna (effort per task) | `implementer-routine` agent | The spec fully determines the outcome: boilerplate, wiring, CRUD, mechanical edits, straightforward features. **Default lane.** Requires the codex CLI. |
-| `complex` | GPT-6 Astra (effort per task, up to `max`) | `implementer-complex` agent | The outcome depends heavily on judgment the spec can't capture: subtle concurrency, non-trivial algorithms, security-sensitive paths, hard debugging, wide-blast-radius refactors — or the routine lane has already failed the task once. Also the second runner when racing two lanes on one spec. One-off escalations, never the default. Requires the codex CLI. |
-| — | strongest available Claude | `arch-advisor` agent | Not an implementation lane. Commitment boundaries and the mandatory end-of-deliverable review — see below. |
+| `complex` | GPT-6.1 Sol (effort per task, up to `max`) | `implementer-complex` agent | The outcome depends heavily on judgment the spec can't capture: subtle concurrency, non-trivial algorithms, security-sensitive paths, hard debugging, wide-blast-radius refactors — or the routine lane has already failed the task once. Also the second runner when racing two lanes on one spec. One-off escalations, never the default. Requires the codex CLI. |
+| — | Claude Opus 5.5 | `arch-advisor` agent | Read-only advice at commitment boundaries and the mandatory final review. |
+| `2nd-advisor` | GPT-6 Astra | `2nd-advisor` agent | Independent read-only second opinion and mandatory final review; uses Codex CLI, never implements. |
 
-To point a lane at a different model, edit `lanes.json` — never edit an agent file, and never pass a model slug the config doesn't name.
+To point a Codex lane at a different model, edit `lanes.json`. The Claude reviewer is pinned to `claude-opus-5-5` in `agents/arch-advisor.md`. The `2nd-advisor` is an advice lane, not a third implementer.
 
 Deciding rule: how much does the outcome depend on judgment the spec can't capture? Little → the default routine lane; you will verify anyway. A lot, and mistakes are costly → escalate to `implementer-complex`, or keep that piece with the architect. A routine-lane task that fails its spec once gets a corrected spec; twice, it escalates — repetition is evidence the task was misclassified.
 
@@ -49,15 +50,15 @@ Nothing in the lanes pins an effort — the architect names one per task in the 
 | `max` | The hardest single-lane tasks: concurrency, security-sensitive paths, gnarly debugging |
 | `ultra` | Maximum reasoning plus codex's own internal task delegation — slow and token-hungry. **Disabled in the shipped config**; it has to be added to a lane's `efforts` before you can route to it. |
 
-**Which rungs a given lane actually accepts is configuration, not doctrine.** `lane.sh list` prints the declared rungs per lane; as shipped, both lanes accept `low` through `max`; `ultra` is deliberately left out to stop it becoming a habit, and both models reject `minimal`. A lane refuses an undeclared rung rather than rounding it — the codex CLI itself does *not* validate effort names client-side, so this check is the only thing standing between a typo and a mid-run API rejection. A task that seems to need a rung the default lane lacks is a task for a lane that has it.
+**Which rungs a given lane actually accepts is configuration, not doctrine.** `lane.sh list` prints the declared rungs per lane; as shipped, all three Codex lanes declare `low` through `max`; `ultra`, `none` and `minimal` are omitted. GPT-6 Luna does not support `ultra`. A lane refuses an undeclared rung rather than rounding it — the codex CLI itself does *not* validate effort names client-side, so this check is the only thing standing between a typo and a mid-run API rejection. A task that seems to need a rung the default lane lacks is a task for a lane that has it.
 
-If you omit the effort, the lane runs codex at the user's own `~/.codex/config.toml` default and flags that in `GAPS` — acceptable for trivial work, never for an escalation.
+An explicit effort is refused when the lane declares `efforts: null`; it is never silently dropped. If you omit the effort, the lane runs codex at the user's own `~/.codex/config.toml` default and flags that in `GAPS` — acceptable for trivial work, never for an escalation.
 
 The architect's own effort and the advisor's come from the session (`/effort`), since Claude Code sets subagent effort per agent definition, not per call. Raise the session effort before an architecture decision or a final review that deserves it; drop it back for routine turns.
 
 ## The spec contract
 
-Implementers share none of your conversation context. Every delegation prompt carries all six parts:
+Implementers share none of your conversation context. Every delegation must first name `WORKSPACE: /absolute/path/to/project`; if it is absent, the lane refuses instead of guessing. This workspace is used for override resolution, Codex execution and verification. The prompt then carries all six parts:
 
 1. **Objective** — what to build or change, one paragraph
 2. **Files** — exact paths to create or modify
@@ -74,25 +75,23 @@ Independent specs (no shared files, no ordering dependency) launch as parallel a
 
 ## Commitment boundaries and the final review
 
-Consult `arch-advisor` (read-only, verdict in under 300 words) at the moments that decide whether the next hour is wasted:
+Consult the read-only `arch-advisor` (Claude Opus 5.5) at commitment boundaries. Consult `2nd-advisor` (Codex Astra) as well for significant architectural decisions, migrations, API designs, refactor strategies, or a problem that has resisted two distinct attempts. Either advisor can be explicitly requested for an individual question.
 
-- Before committing to an architecture, data migration, API shape, or refactor strategy
-- Whenever the same problem has resisted two distinct attempts
-- **Always, once, at the end of a deliverable** — the advisor reads the accumulated changes with fresh eyes, against the stated goal rather than the conversation, and returns ship / fix-first / rethink. The architect does not report done before this review.
+**Always obtain both reviews once at the end of a deliverable before reporting done.** Give each reviewer the same goal, constraints, exact workspace, affected paths and diff/base reference, plus verification evidence and a per-call reasoning effort for the Codex reviewer. Ask for `ship`, `fix-first`, or `rethink` in under 300 words. Invoke the advisors independently without passing one verdict to the other on the initial review; they can run in parallel when they only read the same stable workspace.
 
-Pass it the decision (or, for final review, the diff and the stated goal), the constraints, and the options considered. Act on the verdict or surface the disagreement — never silently ignore it.
+The `2nd-advisor` agent calls `scripts/second-advisor.sh`, which resolves its model from `lanes.json` and runs `codex exec --sandbox read-only` with approvals disabled. It returns advice rather than changes: an unchanged diff is expected and is never a refusal. Its Claude Sonnet wrapper only supervises the CLI; the substantive verdict must come from the configured Codex model, not the wrapper.
 
-One honest caveat: the advisor and the architect are normally the same model. The final review is still worth it — it reads the diff in a clean context, against the goal rather than the conversation, without the assumptions the architect accumulated while writing the specs — but it is a fresh-eyes check, not an independent-model check. Cross-vendor independence comes from the codex lanes producing the code, and, when the Codex plugin is installed, from its review skills (below).
+The architect reconciles both verdicts against the evidence. Act on concrete findings, verify any fixes, and surface disagreements rather than counting votes. Re-consult the relevant reviewer when a fix materially changes the reviewed decision. If either reviewer is unavailable, times out or refuses, report it explicitly; do not pretend the review passed or silently replace the requested model. Never let reviewers call each other or delegate implementation: the architect owns follow-up work.
 
 ## The Codex plugin (optional)
 
 If the official OpenAI Codex plugin for Claude Code is installed (`codex@openai-codex` under `enabledPlugins` in the user's Claude Code settings; `/plugin list` shows it), its commands become available in the session. It talks to the local `codex` binary over its app-server protocol, so it shares the same install and login as the lanes. The doctrine uses it three ways:
 
-- **`/codex:adversarial-review`** — run it on the accumulated diff *before* the `arch-advisor` final review on any deliverable that touched a security-sensitive path, a migration, or an API shape. It is a GPT-family reviewer and so an independent-model check on the Claude reviewer's blind spots. Feed its findings into the advisor consult as context. `/codex:review` is the lighter pass for ordinary deliverables when the user wants cross-vendor review.
+- **`/codex:adversarial-review`** — run it on the accumulated diff *before* the `arch-advisor` final review on any deliverable that touched a security-sensitive path, a migration, or an API shape. It adds a specialized pass to the independent Astra review already provided by `2nd-advisor`. Give both advisors the same findings as evidence. `/codex:review` is the lighter pass for ordinary deliverables when the user wants cross-vendor review.
 - **`/codex:rescue --model <slug> --effort <rung>`** — a write-capable delegation the user can drive directly, with `/codex:status`, `/codex:result`, and `/codex:cancel` for background jobs. Use it when the user asks for it, or for a long-running investigation you want off the session's critical path. It caps effort at `xhigh` and returns Codex's output rather than the lane report, so the architect still reads the diff and re-runs verification itself. For `max`/`ultra`, or whenever you want the structured report and the empty-diff check, use the lanes.
 - **`/codex:setup`** — point the user here when a lane reports `unavailable`; it verifies the binary, version, and login.
 
-The plugin's optional stop-time review gate (`/codex:setup --enable-review-gate`) runs a Codex review every time the session stops; it overlaps with the mandatory advisor review and can loop, so leave it off under this pattern unless the user chooses otherwise. Without the plugin the pattern is unchanged — it adds a reviewer and a manual delegation path, it is not a dependency.
+The plugin's optional stop-time review gate (`/codex:setup --enable-review-gate`) runs a Codex review every time the session stops; it overlaps with the mandatory advisor reviews and can loop, so leave it off under this pattern unless the user chooses otherwise. Without the plugin the pattern is unchanged — it adds a reviewer and a manual delegation path, it is not a dependency.
 
 ## Verification
 
