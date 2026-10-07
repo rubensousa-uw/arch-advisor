@@ -32,8 +32,14 @@ find_config() {
   die "no lanes.json found (looked in \$ARCH_ADVISOR_CONFIG, ./.arch-advisor/, ~/.claude/arch-advisor/, and the plugin's config/)" 3
 }
 
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 CONFIG=$(find_config)
 jq -e . "$CONFIG" >/dev/null 2>&1 || die "lanes.json is not valid JSON: $CONFIG" 3
+
+effective_config() {
+  command -v python3 >/dev/null 2>&1 || die "Python 3 is required to read native plugin settings" 3
+  python3 "$script_dir/native-config.py" "$CONFIG" "$@"
+}
 
 lane_exists() { jq -e --arg l "$1" '.lanes | has($l)' "$CONFIG" >/dev/null 2>&1; }
 lane_names()  { jq -r '.lanes | keys_unsorted | join(", ")' "$CONFIG"; }
@@ -53,8 +59,9 @@ case "$cmd" in
 
   list)
     printf 'lanes.json: %s\n\n' "$CONFIG"
-    jq -r '.lanes | to_entries[] |
-      "  \(if .key == "2nd-advisor" then "second-opinion (alias: 2nd-advisor)" else .key end)\n    agent:   \(if .key == "2nd-advisor" then "second-opinion" else .value.agent end)\n    model:   \(.value.model)\n    default effort: \(.value.default_effort // "<codex default>")\n    efforts: \(if .value.efforts == null then "(not declared — configured/requested effort is refused)" else (.value.efforts | join(", ")) end)\n    timeout: \(.value.timeout_seconds)s\n"' "$CONFIG"
+    data=$(effective_config) || { rc=$?; exit "$rc"; }
+    printf '%s\n' "$data" | jq -r '.lanes | to_entries[] |
+      "  \(if .key == "2nd-advisor" then "second-opinion (alias: 2nd-advisor)" else .key end)\n    agent:   \(if .key == "2nd-advisor" then "second-opinion" else .value.agent end)\n    model:   \(.value.model)\n    native settings: \(.value._native_options_source // "<none; lane configuration applies>")\n    default effort: \(.value.default_effort // "<codex default>")\n    efforts: \(if .value.efforts == null then "(not declared — configured/requested effort is refused)" else (.value.efforts | join(", ")) end)\n    timeout: \(.value.timeout_seconds)s\n"'
     ;;
 
   resolve)
@@ -63,7 +70,8 @@ case "$cmd" in
     require_lane "$lane"
     # Values are single-quoted: LANE_EFFORTS is a space-separated list, and an
     # unquoted eval of it would run "medium high xhigh max" as a command.
-    jq -r --arg l "$lane" '
+    data=$(effective_config "$lane") || { rc=$?; exit "$rc"; }
+    printf '%s\n' "$data" | jq -r --arg l "$lane" '
       def q: tostring | @sh;
       .lanes[$l] |
       "LANE_NAME=" + ($l | q),
@@ -71,7 +79,7 @@ case "$cmd" in
       "LANE_TIMEOUT=" + (.timeout_seconds | q),
       "LANE_DEFAULT_EFFORT=" + ((.default_effort // "") | q),
       "LANE_EFFORTS=" + ((if .efforts == null then "" else (.efforts | join(" ")) end) | q),
-      "LANE_EFFORTS_DECLARED=" + ((if .efforts == null then 0 else 1 end) | q)' "$CONFIG"
+      "LANE_EFFORTS_DECLARED=" + ((if .efforts == null then 0 else 1 end) | q)'
     ;;
 
   validate)
@@ -79,7 +87,8 @@ case "$cmd" in
     [ -n "$lane" ] && [ -n "$effort" ] || die "usage: lane.sh validate <lane> <effort>" 2
     lane=$(canonical_lane "$lane")
     require_lane "$lane"
-    model=$(jq -r --arg l "$lane" '.lanes[$l].model' "$CONFIG")
+    data=$(effective_config "$lane") || { rc=$?; exit "$rc"; }
+    model=$(printf '%s\n' "$data" | jq -r --arg l "$lane" '.lanes[$l].model')
     if jq -e --arg l "$lane" '.lanes[$l].efforts == null' "$CONFIG" >/dev/null 2>&1; then
       die "effort rungs for '$model' (lane '$lane') are not declared in $CONFIG. Omit the effort flag so codex uses your own default, or declare the rungs once you have confirmed them." 4
     fi

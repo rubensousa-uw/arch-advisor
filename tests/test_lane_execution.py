@@ -50,6 +50,7 @@ if mode == 'timeout':
         self.env.update(
             PATH=str(self.bin) + os.pathsep + self.env.get("PATH", ""),
             ARCH_ADVISOR_CONFIG=str(self.config),
+            CLAUDE_CONFIG_DIR=str(self.base / "claude"),
             MOCK_CODEX_RECORD=str(self.record),
             MOCK_TIMER_RECORD=str(self.base / "timeouts"),
         )

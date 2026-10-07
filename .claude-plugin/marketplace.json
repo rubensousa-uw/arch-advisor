@@ -1,7 +1,7 @@
 {
   "name": "arch-advisor",
   "metadata": {
-    "description": "Claude coordination with configurable routine, complex and second-opinion Codex lanes."
+    "description": "Claude coordination with native /config settings for routine, complex and second-opinion Codex lanes."
   },
   "owner": {
     "name": "Ruben Sousa",
@@ -11,7 +11,7 @@
     {
       "name": "arch-advisor",
       "source": "./",
-      "description": "Claude coordination with configurable routine, complex and second-opinion Codex lanes."
+      "description": "Claude coordination with native /config settings for routine, complex and second-opinion Codex lanes."
     }
   ]
 }

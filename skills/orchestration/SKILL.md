@@ -31,9 +31,9 @@ What stays with the architect regardless of cost: decomposition, interface desig
 
 Choose the Claude session model and effort with `/model` and `/effort` inside
 Claude Code. The plugin's wrappers inherit that model. Use
-`/arch-advisor:configure` selection boxes for only routine, complex and
-second-opinion Codex models/default efforts. Preferences live outside the plugin
-cache. There is no separate Claude reviewer. `arch-advisor:2nd-advisor` remains a
+native `/config` settings for arch-advisor to choose routine, complex and
+second-opinion Codex models/default efforts. Preferences live in Claude Code user settings, outside the plugin
+cache. No model call is used to change them. There is no separate Claude reviewer. `arch-advisor:2nd-advisor` remains a
 compatibility alias for `arch-advisor:second-opinion`; both use the stored
 `2nd-advisor` lane key so existing overrides retain their model and effort.
 

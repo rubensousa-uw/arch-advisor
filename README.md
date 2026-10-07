@@ -27,7 +27,7 @@ claude plugin marketplace add rubensousa-uw/arch-advisor
 claude plugin install arch-advisor@arch-advisor
 ```
 
-Requires `jq`, Python 3 for the configuration command, an installed and authenticated Codex CLI (`codex login`), and
+Requires `jq`, Python 3 for reading native settings, an installed and authenticated Codex CLI (`codex login`), and
 access to the configured models. For consultation timeouts on macOS, install
 coreutils (`gtimeout`); without `gtimeout` or `timeout`, the helper warns and
 runs without a wall-clock cap. Restart Claude Code after updating the plugin
@@ -42,7 +42,7 @@ claude plugin marketplace update arch-advisor
 claude plugin update arch-advisor@arch-advisor
 ```
 
-Restart Claude Code once to load version 6.2.1 and the new command. Ubuntu uses
+Restart Claude Code once to load version 6.3.0 and the native settings. Ubuntu uses
 `timeout` from `coreutils`; no Homebrew is needed. If dependencies are missing:
 
 ```bash
@@ -52,39 +52,60 @@ sudo apt install jq python3 coreutils
 
 ## Choose models and default effort
 
-Inside Claude Code, run:
+Requires **Claude Code 2.1.271 or later** for native plugin pickers. Check
+`claude --version`; update Claude Code first if needed with `claude update`.
 
-```text
-/arch-advisor:configure
+Inside Claude Code, open **`/config`** and find the **arch-advisor** option rows.
+There are model and default effort lists for **Routine**, **Complex** and
+**Second opinion**, plus a custom model ID field for each lane. These are native
+Claude Code controls: changing a value does not prompt a model, spend inference
+tokens, or run a conversational skill. `/arch-advisor:configure` has been removed.
+
+- Model: choose `gpt-6-luna`, `gpt-6.1-sol`, `gpt-6-astra`, or `custom`. For
+  `custom`, fill the lane's custom model ID field, then select `custom`. Future
+  IDs need no plugin update.
+- Effort: choose `low`, `medium`, `high`, `xhigh`, `max`, or `inherit` to use the
+  global Codex default.
+- `default` preserves the previous lane setting, or the shipped setting if none
+  exists. This keeps configurations from 6.2.x working until you change them.
+
+Claude Code stores the non-sensitive fields under
+`pluginConfigs["arch-advisor@arch-advisor"].options` in user `settings.json`.
+The runner reads those saved values on every invocation; changes apply to the
+next Codex call and survive plugin updates. They are local to this machine.
+Choose the Claude session model/effort separately with `/model` and `/effort`.
+
+You can also inspect or set these same native values from the terminal, without
+using a model:
+
+```bash
+claude plugin configure arch-advisor@arch-advisor --json
+claude plugin configure arch-advisor@arch-advisor --values-stdin <<'OPTIONS'
+{"routine_model":"gpt-6-luna","routine_effort":"medium","complex_model":"gpt-6.1-sol","complex_effort":"high","second_opinion_model":"gpt-6-astra","second_opinion_effort":"high"}
+OPTIONS
 ```
 
-Selection boxes choose scope (all projects on this machine or this project),
-components, model, and default effort. Only the three Codex lanes are
-configurable: **routine**, **complex** and **second-opinion**. Choose a listed
-model or enter a custom model ID,
-including future models, without changing or updating the plugin. Choose
-**Inherit** to remove a saved effort default. Saving preferences does not test
-account access or model/effort support; the API can still reject a choice.
+Omitted options keep their saved values. Choices do not prove API/account access
+or accepted model efforts; runtime validates against the lane allowlist and
+reports API failures. Empty/invalid custom IDs fail before Codex starts.
 
-Preferences are saved in the user/project configuration paths below, outside
-the plugin cache. Later plugin updates preserve them. Global settings for the
-main Claude session are unchanged; use `/model` and `/effort` for that session.
-Selections are local to each machine.
+Explicit task `REASONING` overrides the effective saved effort. `inherit` removes
+the lane default for that invocation. The smoke probe uses the saved effort when
+present; otherwise it probes the first declared rung.
 
-For Codex, effort priority is **task REASONING > saved lane default > global
-Codex default**. Defaults are validated against each lane's `efforts` too. The
-smoke probe uses the saved default when present, otherwise the first declared
-rung (or inherits Codex if no rungs are declared).
+`ARCH_ADVISOR_CONFIG` and project `./.arch-advisor/lanes.json` overrides take
+priority over the native user preferences. `scripts/lane.sh list` shows the
+base configuration, effective model/effort and native settings source; a project
+or explicit override shows no applied native settings. Legacy user preferences
+still supply timeouts/allowlists and any model/effort set to `default`.
 
-Use `arch-advisor:second-opinion` for advice. The previous
-`arch-advisor:2nd-advisor` name remains a compatible alias. Both use the same
-configuration and read-only sandbox. The stored `2nd-advisor` key remains stable
-so old user/project overrides continue to work.
+Use `arch-advisor:second-opinion` for advice. `arch-advisor:2nd-advisor` remains a
+compatible alias with the same read-only sandbox and stable stored lane key.
 
-If you configured a Claude reviewer in 6.2.0, the next save removes the obsolete
-Claude preference and only the marked agents generated by that command in the
-selected scope. Independently authored agents and main Claude settings remain
-untouched. No new Claude agents are generated.
+If you previously used the 6.2.0 Claude reviewer, this version does not use its
+obsolete generated agents; there is no separate Claude reviewer in the workflow.
+
+Native picker reference: [Claude Code user configuration](https://code.claude.com/docs/en/plugins-reference#user-configuration).
 
 ## Advanced lane configuration
 
@@ -98,7 +119,7 @@ configuration wins:
 | 3 | `~/.claude/arch-advisor/lanes.json` (or under `CLAUDE_CONFIG_DIR`) | All projects |
 | 4 | Plugin `config/lanes.json` | Defaults |
 
-The picker preserves existing configuration and unselected fields. For manual
+Native controls preserve unrelated settings. For advanced manual
 configuration, copy the default file to the desired scope and edit it. Keep all three lane
 entries; adding a lane also requires an agent definition under `agents/`.
 
@@ -125,10 +146,9 @@ null; declare the rungs to enable it. A
 requested effort is never silently dropped. Account access and accepted efforts should be checked
 with a live smoke test; local validation only enforces the declared allowlist.
 
-`ARCH_ADVISOR_CONFIG` takes priority over the picker, which refuses to save while
-that variable is set. A project configuration also takes priority over user
-preferences; the command reports when a user selection is masked in the current
-workspace.
+`ARCH_ADVISOR_CONFIG` and project configurations take priority over native user
+preferences. Use `lane.sh list` in the target workspace to check the actual
+model and effort before running.
 
 ## Use the second opinion
 

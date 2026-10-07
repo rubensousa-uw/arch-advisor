@@ -1,7 +1,7 @@
 {
   "name": "arch-advisor",
-  "version": "6.2.1",
-  "description": "Choose your Claude session model in Claude Code. Configure persistent model and effort defaults for routine and complex Codex implementation and a read-only second-opinion Codex advisor.",
+  "version": "6.3.0",
+  "description": "Native model and effort settings in Claude Code /config for routine, complex and second-opinion Codex lanes. Your Claude session model stays under /model.",
   "author": {
     "name": "Ruben Sousa",
     "url": "https://github.com/rubensousa-uw"
@@ -17,5 +17,109 @@
     "codex",
     "reasoning-effort",
     "configurable-lanes"
-  ]
+  ],
+  "userConfig": {
+    "routine_model": {
+      "type": "string",
+      "title": "Routine — modelo",
+      "description": "default mantém o modelo anterior ou de fábrica. custom usa o campo ID personalizado. Overrides de projeto ou ARCH_ADVISOR_CONFIG têm prioridade.",
+      "options": [
+        "default",
+        "gpt-6-luna",
+        "gpt-6.1-sol",
+        "gpt-6-astra",
+        "custom"
+      ],
+      "default": "default"
+    },
+    "routine_custom_model": {
+      "type": "string",
+      "title": "Routine — ID personalizado",
+      "description": "Usado apenas quando o modelo é custom. Aceita IDs futuros sem atualizar o plugin.",
+      "default": ""
+    },
+    "routine_effort": {
+      "type": "string",
+      "title": "Routine — effort por defeito",
+      "description": "default mantém o effort anterior; inherit usa o default global do Codex. REASONING indicado na tarefa tem prioridade.",
+      "options": [
+        "default",
+        "inherit",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "default": "default"
+    },
+    "complex_model": {
+      "type": "string",
+      "title": "Complex — modelo",
+      "description": "default mantém o modelo anterior ou de fábrica. custom usa o campo ID personalizado. Overrides de projeto ou ARCH_ADVISOR_CONFIG têm prioridade.",
+      "options": [
+        "default",
+        "gpt-6-luna",
+        "gpt-6.1-sol",
+        "gpt-6-astra",
+        "custom"
+      ],
+      "default": "default"
+    },
+    "complex_custom_model": {
+      "type": "string",
+      "title": "Complex — ID personalizado",
+      "description": "Usado apenas quando o modelo é custom. Aceita IDs futuros sem atualizar o plugin.",
+      "default": ""
+    },
+    "complex_effort": {
+      "type": "string",
+      "title": "Complex — effort por defeito",
+      "description": "default mantém o effort anterior; inherit usa o default global do Codex. REASONING indicado na tarefa tem prioridade.",
+      "options": [
+        "default",
+        "inherit",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "default": "default"
+    },
+    "second_opinion_model": {
+      "type": "string",
+      "title": "Second opinion — modelo",
+      "description": "default mantém o modelo anterior ou de fábrica. custom usa o campo ID personalizado. Overrides de projeto ou ARCH_ADVISOR_CONFIG têm prioridade.",
+      "options": [
+        "default",
+        "gpt-6-luna",
+        "gpt-6.1-sol",
+        "gpt-6-astra",
+        "custom"
+      ],
+      "default": "default"
+    },
+    "second_opinion_custom_model": {
+      "type": "string",
+      "title": "Second opinion — ID personalizado",
+      "description": "Usado apenas quando o modelo é custom. Aceita IDs futuros sem atualizar o plugin.",
+      "default": ""
+    },
+    "second_opinion_effort": {
+      "type": "string",
+      "title": "Second opinion — effort por defeito",
+      "description": "default mantém o effort anterior; inherit usa o default global do Codex. REASONING indicado na tarefa tem prioridade.",
+      "options": [
+        "default",
+        "inherit",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
+      "default": "default"
+    }
+  }
 }
