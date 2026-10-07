@@ -1,5 +1,12 @@
 # arch-advisor
 
+This repository contains two independent packages: **Claude Code 6.3.0** at the
+repository root and **Codex 1.0.0** under [`codex/`](codex/README.md). The Codex
+variant keeps your selected Codex session model and adds routine/complex lanes
+plus a second opinion from Astra **or Claude**, configured through a local
+terminal menu without inference calls. Each package has its own marketplace and
+preferences. The instructions below describe the Claude Code package.
+
 Claude owns architecture, coordination and verification. Codex implements through
 configurable routine and complex lanes. A read-only Codex second opinion reviews
 each deliverable. Choose your Claude model directly inside Claude Code.

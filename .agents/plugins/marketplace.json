@@ -1,0 +1,12 @@
+{
+  "name": "arch-advisor-codex",
+  "interface": {"displayName": "Arch Advisor — Codex"},
+  "plugins": [
+    {
+      "name": "arch-advisor",
+      "source": {"source": "local", "path": "./codex"},
+      "policy": {"installation": "AVAILABLE", "authentication": "ON_USE"},
+      "category": "Productivity"
+    }
+  ]
+}

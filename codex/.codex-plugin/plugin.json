@@ -1,0 +1,17 @@
+{
+  "name": "arch-advisor",
+  "version": "1.0.0",
+  "description": "Codex coordination with configurable routine and complex implementation lanes and a read-only Astra or Claude second opinion.",
+  "author": {"name": "Ruben Sousa", "url": "https://github.com/rubensousa-uw"},
+  "repository": "https://github.com/rubensousa-uw/arch-advisor",
+  "license": "MIT",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Arch Advisor for Codex",
+    "shortDescription": "Configurable implementation lanes and an Astra or Claude second opinion.",
+    "developerName": "Ruben Sousa",
+    "category": "Productivity",
+    "capabilities": ["Read", "Write"],
+    "defaultPrompt": ["Use $arch-advisor:orchestration to implement this task and obtain a second opinion.", "Use $arch-advisor:second-opinion to review this plan without changing files."]
+  }
+}

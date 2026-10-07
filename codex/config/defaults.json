@@ -1,0 +1,13 @@
+{
+  "config_version": 1,
+  "lanes": {
+    "routine": {"model": "gpt-6-luna", "effort": "high", "timeout_seconds": 600},
+    "complex": {"model": "gpt-6.1-sol", "effort": "high", "timeout_seconds": 1800},
+    "second-opinion": {
+      "provider": "codex",
+      "codex": {"model": "gpt-6-astra", "effort": "medium"},
+      "claude": {"model": "opus", "effort": "high"},
+      "timeout_seconds": 900
+    }
+  }
+}
