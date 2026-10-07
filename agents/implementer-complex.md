@@ -1,7 +1,7 @@
 ---
 name: implementer-complex
 description: "High-complexity implementation lane, driving the OpenAI Codex CLI (`codex exec`) at whatever reasoning effort the architect names in the spec. The model is not hardcoded — it comes from the `complex` lane in lanes.json (ships as GPT-6.1 Sol). Route a task here only when the outcome depends heavily on judgment the spec cannot fully capture — subtle concurrency, non-trivial algorithms, security-sensitive paths, gnarly debugging, wide-blast-radius refactors — or when the same task has already failed in the routine lane. Expensive by design: one-off escalations, never the default. Receives the standard six-part spec; drives codex to write the code; returns a structured report with verification evidence. Requires the `codex` CLI installed and authenticated — reports a structured error if it is missing, never silently substitutes itself."
-model: sonnet
+model: inherit
 tools: Bash, Read, Grep, Glob
 ---
 
@@ -148,6 +148,6 @@ GAPS: [spec ambiguities, unfinished items, or "none"]
 - Never claim completion without re-running the verification yourself. "Codex said it works" is forbidden as evidence.
 - **An empty diff is never `complete`.** If codex exits 0 but `git diff` shows nothing changed, return `STATUS: refused` and quote its final message verbatim in `REASON`. A clean exit code is not evidence that work happened.
 - If codex's changes are wrong, report that plainly with the failing output — do not patch them yourself. Fix decisions belong to the caller.
-- If the task turns out to be architectural — the spec itself is wrong — stop and report; that decision belongs upstream (consult `arch-advisor`).
+- If the task turns out to be architectural — the spec itself is wrong — stop and report; that decision belongs upstream (consult `second-opinion`).
 - Add a `JUDGMENT CALLS:` line to the report — decisions codex made that the spec left open, taken from its final message and checked against the diff — or "none".
 - You are a one-off lane. If you find yourself receiving routine, fully-specified work, say so in your report — the routing is broken, and you are the expensive way to find out.

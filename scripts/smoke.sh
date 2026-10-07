@@ -22,7 +22,7 @@ done
 WORKSPACE=$(CDPATH= cd -- "$WORKSPACE" && pwd)
 cd -- "$WORKSPACE"
 if CONFIG=$("$script_dir/lane.sh" config-path); then :; else rc=$?; exit "$rc"; fi
-LANES=$(jq -r '.lanes | keys_unsorted[]' "$CONFIG")
+LANES=$(jq -r '.lanes | keys_unsorted[] | if . == "2nd-advisor" then "second-opinion" else . end' "$CONFIG")
 [ -z "$ONLY" ] || LANES="$ONLY"
 scratch=$(mktemp -d "${TMPDIR:-/tmp}/arch-smoke.XXXXXX")
 trap 'rm -rf -- "$scratch"' EXIT

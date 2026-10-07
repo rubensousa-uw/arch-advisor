@@ -1,7 +1,7 @@
 {
   "name": "arch-advisor",
-  "version": "6.2.0",
-  "description": "Claude orchestration with selection boxes for persistent model and effort defaults, configurable Codex implementation lanes, and independent read-only Claude and Codex advisors.",
+  "version": "6.2.1",
+  "description": "Choose your Claude session model in Claude Code. Configure persistent model and effort defaults for routine and complex Codex implementation and a read-only second-opinion Codex advisor.",
   "author": {
     "name": "Ruben Sousa",
     "url": "https://github.com/rubensousa-uw"

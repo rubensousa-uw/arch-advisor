@@ -1,6 +1,6 @@
 ---
-name: 2nd-advisor
-description: "Compatibility alias for arch-advisor:second-opinion. Independent read-only second opinion via Codex CLI, using the 2nd-advisor lane (GPT-6 Astra by default). Consult for significant architecture, migrations, API designs, persistent failures, and always once at the end of a deliverable. Returns advice, never implementation."
+name: second-opinion
+description: "Independent read-only second opinion via Codex CLI, using the configurable second-opinion lane (GPT-6 Astra by default). Consult for significant architecture, migrations, API designs, persistent failures, and always once at the end of a deliverable. Returns advice, never implementation."
 model: inherit
 tools: Bash, Read, Grep, Glob
 ---

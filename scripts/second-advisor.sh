@@ -61,12 +61,12 @@ sed -n '/^WARN: no timeout binary;/p' "$scratch/log" >&2
 if [ "$rc" -ne 0 ]; then
   status=unavailable
   [ "$rc" -ne 124 ] && [ "$rc" -ne 137 ] || status=timeout
-  printf 'CODEX ADVISOR REPORT\nLANE: 2nd-advisor (%s)\nSTATUS: %s\nREASON: codex exited %s\n' "$LANE_MODEL" "$status" "$rc"
+  printf 'CODEX ADVISOR REPORT\nLANE: second-opinion (%s)\nSTATUS: %s\nREASON: codex exited %s\n' "$LANE_MODEL" "$status" "$rc"
   cat "$scratch/log"
   exit "$rc"
 fi
 [ -s "$scratch/final" ] || fail refused "Codex returned no advice"
-printf 'CODEX ADVISOR REPORT\nLANE: 2nd-advisor (%s, effort: %s)\nSTATUS: complete\n' \
+printf 'CODEX ADVISOR REPORT\nLANE: second-opinion (%s, effort: %s)\nSTATUS: complete\n' \
   "$LANE_MODEL" "${EFFORT:-omitted — codex default}"
 cat "$scratch/final"
 printf '\n'

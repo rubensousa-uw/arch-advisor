@@ -1,7 +1,7 @@
 {
   "name": "arch-advisor",
   "metadata": {
-    "description": "Claude orchestration, configurable Codex implementation lanes, and independent Opus 5.5 plus Astra read-only advisors."
+    "description": "Claude coordination with configurable routine, complex and second-opinion Codex lanes."
   },
   "owner": {
     "name": "Ruben Sousa",
@@ -11,7 +11,7 @@
     {
       "name": "arch-advisor",
       "source": "./",
-      "description": "Claude orchestration, configurable Codex implementation lanes, and independent Opus 5.5 plus Astra read-only advisors."
+      "description": "Claude coordination with configurable routine, complex and second-opinion Codex lanes."
     }
   ]
 }

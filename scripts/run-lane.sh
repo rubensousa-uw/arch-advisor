@@ -25,7 +25,9 @@ while [ "$#" -gt 0 ]; do
 done
 [ -n "$WORKSPACE" ] && [ -d "$WORKSPACE" ] || die "An existing --cd workspace is required"
 case "$SANDBOX" in read-only|workspace-write) ;; *) die "Sandbox must be read-only or workspace-write" ;; esac
-[ "$LANE" != 2nd-advisor ] || [ "$SANDBOX" = read-only ] || die "2nd-advisor only permits read-only consultations"
+case "$LANE" in
+  2nd-advisor|second-opinion) [ "$SANDBOX" = read-only ] || die "second-opinion only permits read-only consultations" ;;
+esac
 case "$FINAL" in ""|/*) ;; *) FINAL="$PWD/$FINAL" ;; esac
 WORKSPACE=$(CDPATH= cd -- "$WORKSPACE" && pwd)
 cd -- "$WORKSPACE"

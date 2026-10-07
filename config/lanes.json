@@ -1,6 +1,6 @@
 {
   "config_version": 1,
-  "_comment": "Codex lanes. /arch-advisor:configure saves model/default effort outside the plugin cache. Override via ARCH_ADVISOR_CONFIG, project .arch-advisor/lanes.json, or Claude config directory arch-advisor/lanes.json. Claude selections are applied through generated native arch-advisor-selected agents.",
+  "_comment": "Codex lanes. /arch-advisor:configure saves models/default effort outside the plugin cache. Override via ARCH_ADVISOR_CONFIG, project .arch-advisor/lanes.json, or Claude config directory arch-advisor/lanes.json. The second-opinion display name uses the stable 2nd-advisor key for compatibility.",
   "_efforts_note": "All shipped Codex lanes declare low, medium, high, xhigh and max. none, minimal and ultra are intentionally omitted. Earlier repository CLI probes (Astra on 2026-09-05, Luna on 2026-09-22) reported additional options, including none/ultra on Luna; those historical results do not change this allowlist. Live model access and accepted efforts depend on the account and CLI. scripts/smoke.sh probes one declared effort per lane.",
   "lanes": {
     "routine": {
@@ -32,7 +32,7 @@
       "default_effort": null
     },
     "2nd-advisor": {
-      "agent": "2nd-advisor",
+      "agent": "second-opinion",
       "model": "gpt-6-astra",
       "efforts": [
         "low",

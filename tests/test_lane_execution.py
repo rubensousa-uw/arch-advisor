@@ -115,10 +115,26 @@ if mode == 'timeout':
         self.assertEqual(self.calls(), [])
 
     def test_advisor_cannot_use_workspace_write_even_through_runner(self):
-        result = self.run_command(RUNNER, '2nd-advisor', '--cd', str(self.workspace), '--sandbox', 'workspace-write')
-        self.assertEqual(result.returncode, 2)
-        self.assertIn('only permits read-only', result.stderr)
+        for alias in ('2nd-advisor', 'second-opinion'):
+            result = self.run_command(RUNNER, alias, '--cd', str(self.workspace), '--sandbox', 'workspace-write')
+            self.assertEqual(result.returncode, 2)
+            self.assertIn('only permits read-only', result.stderr)
         self.assertEqual(self.calls(), [])
+
+    def test_new_advisor_helper_and_smoke_preserve_model_effort_and_status(self):
+        self.data['lanes']['2nd-advisor'].update(model='existing-override', default_effort='high')
+        self.save_config()
+        helper = ROOT / 'scripts/second-opinion.sh'
+        result = self.run_command(helper, '--cd', str(self.workspace))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('LANE: second-opinion (existing-override, effort: high)', result.stdout)
+        self.assertIn('read-only', self.calls()[-1]['args'])
+        result = self.run_command(SMOKE, 'second-opinion', '--cd', str(self.workspace))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('existing-override', self.calls()[-1]['args'])
+        self.assertIn('model_reasoning_effort=high', self.calls()[-1]['args'])
+        self.env['MOCK_CODEX_MODE'] = 'timeout'
+        self.assertEqual(self.run_command(helper, '--cd', str(self.workspace)).returncode, 124)
 
     def test_null_efforts_reject_explicit_and_allow_omission_in_every_lane(self):
         for lane in self.data['lanes']:
@@ -201,7 +217,7 @@ if mode == 'timeout':
         self.assertEqual(result.returncode, 1)
         self.assertIn('routine ok ', result.stdout)
         self.assertIn('complex FAIL no exact OK', result.stdout)
-        self.assertIn('2nd-advisor ok ', result.stdout)
+        self.assertIn('second-opinion ok ', result.stdout)
 
     def test_smoke_success_has_read_only_approval_policy_and_timeout(self):
         result = self.run_command(SMOKE, '--cd', str(self.workspace), '--effort', 'high')

@@ -56,32 +56,6 @@ def effort_value(value):
     return value
 
 
-def agents(config):
-    reviewer = config.get('claude_advisor')
-    if reviewer is None:
-        return {}
-    model = model_id(reviewer['model'])
-    default = effort_value(reviewer.get('default_effort'))
-    body = (ROOT / 'agents/arch-advisor.md').read_text().split('---', 2)[2].strip()
-    # The shipped reviewer remains the fallback. Generated definitions are
-    # self-contained: no dependency on a particular plugin cache/version path.
-    start = body.index('This agent pins ')
-    end = body.index('## When you\'re called', start)
-    body = body[:start] + (
-        'Use the model and effort in this definition. If unavailable, report the\n'
-        'failure; never silently substitute. Keep the review independent of the\n'
-        'Codex second advisor.\n\n') + body[end:]
-    definitions = {}
-    for suffix, effort in [('', default)] + [('-' + e, e) for e in EFFORTS]:
-        name = 'arch-advisor-selected' + suffix
-        header = ('---\nname: ' + name + '\ndescription: "Configured independent read-only Claude advisor. '
-                  'Use for architecture advice and final reviews."\nmodel: ' + json.dumps(model) + '\n')
-        if effort:
-            header += 'effort: ' + effort + '\n'
-        definitions[name + '.md'] = header + 'tools: Read, Grep, Glob\n---\n\n' + MARKER + '\n\n' + body + '\n'
-    return definitions
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('command', choices=('show', 'set'))
@@ -97,14 +71,14 @@ def main():
     source = effective(workspace)
     if args.command == 'show':
         print(json.dumps({'effective_path': str(source), 'save_path': str(target),
-                          'agent_directory': str(agent_dir), 'configuration': load(source),
+                          'configuration': load(source),
                           'scope_configuration': load(target) if target.exists() else None}, indent=2))
         return
     if os.environ.get('ARCH_ADVISOR_CONFIG'):
         raise ValueError('ARCH_ADVISOR_CONFIG overrides the picker. Unset it before configuring user/project selections.')
     changes = json.load(sys.stdin)
-    if not isinstance(changes, dict) or not changes or set(changes) - {'lanes', 'claude_advisor'}:
-        raise ValueError('Expected a nonempty JSON object with lanes and/or claude_advisor')
+    if not isinstance(changes, dict) or set(changes) != {'lanes'}:
+        raise ValueError('Expected a JSON object with only lanes; choose the Claude model inside Claude Code')
     if 'lanes' in changes and (not isinstance(changes['lanes'], dict) or not changes['lanes']):
         raise ValueError('lanes must contain selections')
     # Lock the scope, retaining unrelated settings and concurrent selections.
@@ -115,7 +89,12 @@ def main():
         fallback = user_root / 'arch-advisor/lanes.json'
         base = fallback if args.scope == 'project' and fallback.exists() else ROOT / 'config/lanes.json'
         config = load(target if target.exists() else base)
+        config.pop('claude_advisor', None)  # Retire the 6.2.0-only Claude selector.
+        patches = changes['lanes']
+        if 'second-opinion' in patches and '2nd-advisor' in patches:
+            raise ValueError('Use second-opinion or its 2nd-advisor alias, not both in one selection')
         for lane, patch in changes.get('lanes', {}).items():
+            lane = '2nd-advisor' if lane == 'second-opinion' else lane
             if lane not in ('routine', 'complex', '2nd-advisor') or lane not in config['lanes']:
                 raise ValueError(f'Unknown/missing lane: {lane}')
             if not isinstance(patch, dict) or not patch or set(patch) - {'model', 'default_effort'}:
@@ -128,28 +107,17 @@ def main():
             effort = entry.get('default_effort')
             if effort is not None and (not isinstance(entry.get('efforts'), list) or effort not in entry['efforts']):
                 raise ValueError(f'{lane}: default effort {effort!r} is not declared in efforts')
-        if 'claude_advisor' in changes:
-            patch = changes['claude_advisor']
-            if not isinstance(patch, dict) or not patch or set(patch) - {'model', 'default_effort'}:
-                raise ValueError('claude_advisor accepts model and/or default_effort')
-            reviewer = config.setdefault('claude_advisor', {'model': 'claude-opus-5-5', 'default_effort': None})
-            if 'model' in patch:
-                reviewer['model'] = model_id(patch['model'])
-            if 'default_effort' in patch:
-                reviewer['default_effort'] = effort_value(patch['default_effort'])
-        definitions = agents(config)
-        for name in definitions:
-            path = agent_dir / name
-            if path.exists() and MARKER not in path.read_text():
-                raise ValueError(f'Refusing to overwrite an unmanaged agent: {path}')
-        # Roll back partial writes if saving a definition or config fails.
-        paths = [agent_dir / name for name in definitions] + [target]
+        # Remove only this tool's obsolete generated reviewer files in the
+        # selected scope. Keep independently authored agents intact.
+        retired = [agent_dir / ('arch-advisor-selected' + suffix + '.md')
+                   for suffix in ('',) + tuple('-' + e for e in EFFORTS)]
+        retired = [p for p in retired if p.is_file() and MARKER in p.read_text()]
+        paths = retired + [target]
         previous = {path: path.read_text() if path.exists() else None for path in paths}
         written = []
         try:
-            for name, content in definitions.items():
-                path = agent_dir / name
-                atomic_write(path, content)
+            for path in retired:
+                path.unlink()
                 written.append(path)
             atomic_write(target, json.dumps(config, indent=2) + '\n')
             written.append(target)
@@ -163,8 +131,7 @@ def main():
     current = effective(workspace)
     print(json.dumps({'saved_path': str(target), 'effective_path': str(current),
                       'active_in_workspace': current.resolve() == target.resolve(),
-                      'claude_agent': 'arch-advisor-selected' if definitions else None,
-                      'agent_directory': str(agent_dir) if definitions else None,
+                      'removed_legacy_agents': [str(p) for p in retired],
                       'configuration': config}, indent=2))
 
 

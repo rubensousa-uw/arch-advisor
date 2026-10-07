@@ -42,6 +42,9 @@ require_lane() {
   lane_exists "$1" || die "unknown lane '$1' in $CONFIG (configured: $(lane_names))" 2
 }
 
+# Keep the stored key stable so existing user/project overrides keep working.
+canonical_lane() { case "$1" in second-opinion) printf '2nd-advisor\n' ;; *) printf '%s\n' "$1" ;; esac; }
+
 cmd=${1:-}
 case "$cmd" in
   config-path)
@@ -51,11 +54,12 @@ case "$cmd" in
   list)
     printf 'lanes.json: %s\n\n' "$CONFIG"
     jq -r '.lanes | to_entries[] |
-      "  \(.key)\n    agent:   \(.value.agent)\n    model:   \(.value.model)\n    default effort: \(.value.default_effort // "<codex default>")\n    efforts: \(if .value.efforts == null then "(not declared — configured/requested effort is refused)" else (.value.efforts | join(", ")) end)\n    timeout: \(.value.timeout_seconds)s\n"' "$CONFIG"
+      "  \(if .key == "2nd-advisor" then "second-opinion (alias: 2nd-advisor)" else .key end)\n    agent:   \(if .key == "2nd-advisor" then "second-opinion" else .value.agent end)\n    model:   \(.value.model)\n    default effort: \(.value.default_effort // "<codex default>")\n    efforts: \(if .value.efforts == null then "(not declared — configured/requested effort is refused)" else (.value.efforts | join(", ")) end)\n    timeout: \(.value.timeout_seconds)s\n"' "$CONFIG"
     ;;
 
   resolve)
     lane=${2:-}; [ -n "$lane" ] || die "usage: lane.sh resolve <lane>" 2
+    lane=$(canonical_lane "$lane")
     require_lane "$lane"
     # Values are single-quoted: LANE_EFFORTS is a space-separated list, and an
     # unquoted eval of it would run "medium high xhigh max" as a command.
@@ -73,6 +77,7 @@ case "$cmd" in
   validate)
     lane=${2:-}; effort=${3:-}
     [ -n "$lane" ] && [ -n "$effort" ] || die "usage: lane.sh validate <lane> <effort>" 2
+    lane=$(canonical_lane "$lane")
     require_lane "$lane"
     model=$(jq -r --arg l "$lane" '.lanes[$l].model' "$CONFIG")
     if jq -e --arg l "$lane" '.lanes[$l].efforts == null' "$CONFIG" >/dev/null 2>&1; then

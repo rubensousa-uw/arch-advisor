@@ -1,4 +1,6 @@
 import json
+import importlib.util
+import io
 import os
 from pathlib import Path
 import shutil
@@ -6,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -67,23 +70,26 @@ class ConfigureTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('model=future-model-7', self.runner(root=replacement).stdout)
 
-    def test_claude_native_definitions_apply_model_effort_and_read_only_tools(self):
-        result = self.configure({'claude_advisor': {'model': 'claude-future-7', 'default_effort': 'high'}})
+    def test_claude_selection_is_refused_and_codex_selection_creates_no_agents(self):
+        result = self.configure({'claude_advisor': {'model': 'sonnet'}})
+        self.assertEqual(result.returncode, 3)
+        self.assertFalse(self.user.exists())
+        result = self.configure({'lanes': {'routine': {'default_effort': 'high'}}})
         self.assertEqual(result.returncode, 0, result.stderr)
-        agent_dir = self.user / 'agents'
-        definition = (agent_dir / 'arch-advisor-selected.md').read_text()
-        self.assertIn('model: "claude-future-7"', definition)
-        self.assertIn('effort: high\n', definition)
-        self.assertIn('tools: Read, Grep, Glob\n', definition)
-        self.assertNotIn('This agent pins', definition)
-        self.assertNotIn(str(ROOT), definition)
-        variant = (agent_dir / 'arch-advisor-selected-max.md').read_text()
-        self.assertIn('effort: max\n', variant)
-        result = self.configure({'claude_advisor': {'model': 'sonnet', 'default_effort': 'inherit'}})
+        self.assertFalse((self.user / 'agents').exists())
+
+    def test_second_opinion_alias_reuses_existing_override_and_effort(self):
+        result = self.configure({'lanes': {'2nd-advisor': {'model': 'saved-review-model', 'default_effort': 'medium'}}})
         self.assertEqual(result.returncode, 0, result.stderr)
-        definition = (agent_dir / 'arch-advisor-selected.md').read_text()
-        self.assertIn('model: "sonnet"', definition)
-        self.assertNotIn('effort:', definition.split('---', 2)[1])
+        result = self.configure({'lanes': {'second-opinion': {'default_effort': 'high'}}})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        config = json.loads(self.user_config.read_text())
+        self.assertNotIn('second-opinion', config['lanes'])
+        self.assertIn('model=saved-review-model effort=high', self.runner('second-opinion').stdout)
+        self.assertIn('model=saved-review-model effort=high', self.runner('2nd-advisor').stdout)
+        result = self.configure({'lanes': {'second-opinion': {'model': 'a'}, '2nd-advisor': {'model': 'b'}}})
+        self.assertEqual(result.returncode, 3)
+        self.assertIn('model=saved-review-model', self.runner('second-opinion').stdout)
 
     def test_partial_changes_preserve_unknown_settings_and_other_lanes(self):
         self.user_config.parent.mkdir(parents=True)
@@ -107,9 +113,7 @@ class ConfigureTests(unittest.TestCase):
         # User scope did not freeze the unrelated project's values.
         saved = json.loads(self.user_config.read_text())
         self.assertEqual(saved['lanes']['routine']['model'], 'user-model')
-        result = self.configure({'claude_advisor': {'default_effort': 'medium'}}, scope='project')
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue((self.workspace / '.claude/agents/arch-advisor-selected.md').exists())
+        self.assertFalse((self.workspace / '.claude/agents').exists())
 
     def test_invalid_model_effort_or_lane_never_changes_saved_selections(self):
         result = self.configure({'lanes': {'routine': {'default_effort': 'low'}}})
@@ -138,16 +142,26 @@ class ConfigureTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('effort=<codex default>', self.runner().stdout)
 
-    def test_unmanaged_agent_conflict_preserves_configuration_and_agents(self):
+    def test_migration_removes_only_marked_legacy_agents_and_preserves_claude_settings(self):
         directory = self.user / 'agents'
         directory.mkdir(parents=True)
         conflict = directory / 'arch-advisor-selected-max.md'
         conflict.write_text('My own agent\n')
-        result = self.configure({'claude_advisor': {'model': 'sonnet'}})
-        self.assertEqual(result.returncode, 3)
-        self.assertFalse(self.user_config.exists())
+        legacy = directory / 'arch-advisor-selected.md'
+        legacy.write_text('<!-- arch-advisor:configure managed agent -->\nOld generated agent\n')
+        unrelated = self.user / 'settings.json'
+        unrelated.write_text('{"model":"my-chosen-claude","effortLevel":"high"}')
+        self.user_config.parent.mkdir(parents=True)
+        data = json.loads((ROOT / 'config/lanes.json').read_text())
+        data['claude_advisor'] = {'model': 'opus', 'default_effort': 'max'}
+        self.user_config.write_text(json.dumps(data))
+        result = self.configure({'lanes': {'routine': {'default_effort': 'medium'}}})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('claude_advisor', json.loads(self.user_config.read_text()))
+        self.assertEqual(json.loads(result.stdout)['removed_legacy_agents'], [str(legacy.resolve())])
         self.assertEqual(list(directory.iterdir()), [conflict])
         self.assertEqual(conflict.read_text(), 'My own agent\n')
+        self.assertEqual(unrelated.read_text(), '{"model":"my-chosen-claude","effortLevel":"high"}')
 
     def test_explicit_environment_override_is_not_silently_ignored(self):
         self.env['ARCH_ADVISOR_CONFIG'] = str(ROOT / 'config/lanes.json')
@@ -155,6 +169,34 @@ class ConfigureTests(unittest.TestCase):
         self.assertEqual(result.returncode, 3)
         self.assertIn('Unset it', result.stderr)
         self.assertFalse(self.user_config.exists())
+
+    def test_failed_save_restores_retired_agents_and_previous_config(self):
+        directory = self.user / 'agents'
+        directory.mkdir(parents=True)
+        legacy = directory / 'arch-advisor-selected.md'
+        old_agent = '<!-- arch-advisor:configure managed agent -->\nOld agent\n'
+        legacy.write_text(old_agent)
+        self.user_config.parent.mkdir(parents=True)
+        old_config = (ROOT / 'config/lanes.json').read_text()
+        self.user_config.write_text(old_config)
+        spec = importlib.util.spec_from_file_location('picker', ROOT / 'scripts/configure.py')
+        picker = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(picker)
+        original_write = picker.atomic_write
+
+        def failing_write(path, content):
+            if path.resolve() == self.user_config.resolve():
+                raise OSError('simulated write failure')
+            original_write(path, content)
+
+        args = ['configure.py', 'set', '--cd', str(self.workspace), '--scope', 'user']
+        changes = io.StringIO('{"lanes":{"routine":{"default_effort":"high"}}}')
+        with mock.patch.dict(os.environ, self.env, clear=True), mock.patch.object(sys, 'argv', args), \
+                mock.patch.object(sys, 'stdin', changes), mock.patch.object(picker, 'atomic_write', failing_write):
+            with self.assertRaisesRegex(OSError, 'simulated write failure'):
+                picker.main()
+        self.assertEqual(legacy.read_text(), old_agent)
+        self.assertEqual(self.user_config.read_text(), old_config)
 
 
 if __name__ == '__main__':
