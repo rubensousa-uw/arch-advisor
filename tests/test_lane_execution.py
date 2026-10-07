@@ -150,6 +150,38 @@ if mode == 'timeout':
         self.assertEqual(result.returncode, 9)
         self.assertIn('OK', result.stdout)
 
+    def test_saved_effort_reaches_cli_and_explicit_task_wins(self):
+        self.data['lanes']['routine']['default_effort'] = 'medium'
+        self.save_config()
+        result = self.run_lane('routine')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('model_reasoning_effort=medium', self.calls()[-1]['args'])
+        result = self.run_lane('routine', '--effort', 'high')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('model_reasoning_effort=high', self.calls()[-1]['args'])
+        self.assertNotIn('model_reasoning_effort=medium', self.calls()[-1]['args'])
+
+    def test_invalid_saved_default_and_null_allowlist_never_call_codex(self):
+        self.data['lanes']['routine']['default_effort'] = 'ultra'
+        self.save_config()
+        self.assertEqual(self.run_lane('routine').returncode, 4)
+        self.data['lanes']['routine'].update(default_effort='high', efforts=None)
+        self.save_config()
+        self.assertEqual(self.run_lane('routine').returncode, 4)
+        self.assertEqual(self.calls(), [])
+
+    def test_advisor_report_and_smoke_use_saved_default(self):
+        self.data['lanes']['2nd-advisor']['default_effort'] = 'high'
+        self.save_config()
+        result = self.run_command(ADVISOR, '--cd', str(self.workspace))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('effort: high', result.stdout)
+        self.assertIn('model_reasoning_effort=high', self.calls()[-1]['args'])
+        result = self.run_command(SMOKE, '2nd-advisor', '--cd', str(self.workspace))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn('effort=high', result.stdout)
+        self.assertIn('model_reasoning_effort=high', self.calls()[-1]['args'])
+
     def test_smoke_rejects_ok_with_nonzero_exit(self):
         self.env['MOCK_CODEX_MODE'] = 'failure_ok'
         result = self.run_command(SMOKE, '--cd', str(self.workspace))

@@ -35,7 +35,7 @@ for lane in $LANES; do
   else
     status=$?; printf '%s FAIL resolve_exit=%s\n' "$lane" "$status"; rc=1; continue
   fi
-  e="$EFFORT"
+  e="${EFFORT:-$LANE_DEFAULT_EFFORT}"
   if [ -z "$e" ] && [ "$LANE_EFFORTS_DECLARED" = 1 ]; then
     e=$(printf '%s\n' "$LANE_EFFORTS" | cut -d' ' -f1)
   fi

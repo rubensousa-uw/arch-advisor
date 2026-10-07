@@ -16,8 +16,9 @@ paths and diff/base reference, available verification evidence, and optionally
 `REASONING: <effort>`. Keep the review independent: do not request or read the
 `arch-advisor` verdict before this first pass. Never invoke other agents.
 
-Locate `scripts/second-advisor.sh` under `CLAUDE_PLUGIN_ROOT` (normal plugin
-installation) or `ARCH_ADVISOR_HOME` (explicit checkout). If neither resolves,
+Use `${CLAUDE_PLUGIN_ROOT}/scripts/second-advisor.sh` in a normal plugin
+installation (the path is substituted in this body). Otherwise locate it under
+`CLAUDE_PLUGIN_ROOT` (if exported) or `ARCH_ADVISOR_HOME` (explicit checkout). If neither resolves,
 look in `~/.claude/plugins/marketplaces/arch-advisor/scripts/` or the local
 marketplace source path in `~/.claude/settings.json`. Report `unavailable` if the
 script is missing; never use an implementation lane as a substitute.
@@ -31,8 +32,9 @@ and effort. Feed the complete consultation through stdin using a quoted heredoc:
 CONSULTATION
 ```
 
-Omit `--effort` if the caller omitted it; report that Codex used its configured
-default. Do not interpolate the consultation into command arguments or change
+Omit `--effort` if the caller omitted it; the helper applies the saved lane
+default, or inherits Codex if none is saved, and reports the effective value.
+Do not interpolate the consultation into command arguments or change
 the selected model. The helper validates effort, resolves project/user overrides,
 uses unique temporary files, and runs Codex with `--sandbox read-only` and
 `approval_policy="never"`. Do not run mutating shell commands, edit files, make

@@ -1,6 +1,6 @@
 ---
 name: arch-advisor
-description: "Second-opinion advisor and final reviewer, running on Claude Opus 5.5. Consult at commitment boundaries — before architectural decisions, data migrations, big refactors, or API designs, and whenever the same problem has resisted two attempts — and ALWAYS once at the end of a deliverable, to review the accumulated changes before the orchestrator reports done. Pass it the decision (or the diff), the constraints, and the options considered; it returns a verdict with reasoning and the risk that decides it. Advises only — never implements."
+description: "Factory-default read-only Claude Opus 5.5 advisor for architecture decisions and final reviews. When /arch-advisor:configure has generated arch-advisor-selected, invoke that native agent instead to apply the user's selected model and effort. Advises only — never implements."
 model: claude-opus-5-5
 tools: Read, Grep, Glob
 ---

@@ -35,7 +35,9 @@ if resolved=$("$script_dir/lane.sh" resolve "$LANE"); then
 else
   rc=$?; exit "$rc"
 fi
-# null efforts + omission is valid; an explicit effort must be declared.
+# Task effort wins over the saved lane default; omission inherits Codex only
+# when neither exists. Both configured and explicit values must be declared.
+EFFORT=${EFFORT:-$LANE_DEFAULT_EFFORT}
 if [ -n "$EFFORT" ]; then
   if "$script_dir/lane.sh" validate "$LANE" "$EFFORT"; then :; else rc=$?; exit "$rc"; fi
 fi

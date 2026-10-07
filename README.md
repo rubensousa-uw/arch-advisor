@@ -14,11 +14,13 @@ deliverable: Claude Opus 5.5 and Codex Astra.
 
 The Codex agents have lightweight Claude wrappers. Their frontmatter `model`
 selects the wrapper; the actual Codex model comes from `config/lanes.json`.
-The Claude reviewer pins Opus 5.5 in `agents/arch-advisor.md`.
+The factory Claude reviewer pins Opus 5.5. The configuration command creates a
+native read-only `arch-advisor-selected` agent with your selected model and effort.
 
 This is a fork of [DannyMac180/fable-advisor](https://github.com/DannyMac180/fable-advisor).
 Codex models, allowed reasoning efforts and wall-clock caps are resolved at runtime
-by `scripts/lane.sh`; effort is chosen per task and validated before a call.
+by `scripts/lane.sh`; explicit task effort overrides saved defaults and is
+validated before a call.
 
 ## Install
 
@@ -27,13 +29,67 @@ claude plugin marketplace add rubensousa-uw/arch-advisor
 claude plugin install arch-advisor@arch-advisor
 ```
 
-Requires `jq`, an installed and authenticated Codex CLI (`codex login`), and
+Requires `jq`, Python 3 for the configuration command, an installed and authenticated Codex CLI (`codex login`), and
 access to the configured models. For consultation timeouts on macOS, install
 coreutils (`gtimeout`); without `gtimeout` or `timeout`, the helper warns and
 runs without a wall-clock cap. Restart Claude Code after updating the plugin
 so it discovers the new agent. Select your session model with `/model`.
 
-## Configure Codex lanes
+## Update an existing installation (Ubuntu)
+
+Update the marketplace and the existing plugin from a terminal:
+
+```bash
+claude plugin marketplace update arch-advisor
+claude plugin update arch-advisor@arch-advisor
+```
+
+Restart Claude Code once to load version 6.2.0 and the new command. Ubuntu uses
+`timeout` from `coreutils`; no Homebrew is needed. If dependencies are missing:
+
+```bash
+sudo apt update
+sudo apt install jq python3 coreutils
+```
+
+## Choose models and default effort
+
+Inside Claude Code, run:
+
+```text
+/arch-advisor:configure
+```
+
+Selection boxes choose scope (all projects on this machine or this project),
+components, model, and default effort. All three Codex lanes and the Claude
+reviewer are configurable. Choose a listed model or enter a custom model ID,
+including future models, without changing or updating the plugin. Choose
+**Inherit** to remove a saved effort default. Saving preferences does not test
+account access or model/effort support; the API can still reject a choice.
+
+Preferences are saved in the user/project configuration paths below, outside
+the plugin cache. Later plugin updates preserve them. Global settings for the
+main Claude session are unchanged; use `/model` and `/effort` for that session.
+Selections are local to each machine.
+
+For Codex, effort priority is **task REASONING > saved lane default > global
+Codex default**. Defaults are validated against each lane's `efforts` too. The
+smoke probe uses the saved default when present, otherwise the first declared
+rung (or inherits Codex if no rungs are declared).
+
+For the configured Claude reviewer, invoke **arch-advisor-selected**, rather
+than the factory `arch-advisor:arch-advisor`. The orchestration skill selects
+the configured agent automatically. Its generated frontmatter applies the model
+and effort; putting those values only in a prompt would not change the agent.
+An explicit task effort uses `arch-advisor-selected-high`, or the matching
+low/medium/xhigh/max variant. The tools remain `Read, Grep, Glob`. Generated
+definitions live in `~/.claude/agents/` or the project's `.claude/agents/`, and
+survive plugin updates. Existing watched agent directories reload in recent
+Claude Code versions; creating the first agents directory needs one restart.
+Claude Code's explicit Agent model override and `CLAUDE_CODE_EFFORT_LEVEL` can
+override agent defaults; avoid conflicts when checking the chosen values.
+
+## Advanced lane configuration
 
 Run `scripts/lane.sh list` to see the effective configuration. The first existing
 configuration wins:
@@ -42,16 +98,18 @@ configuration wins:
 |---|---|---|
 | 1 | `$ARCH_ADVISOR_CONFIG` | Explicit override |
 | 2 | `./.arch-advisor/lanes.json` | Current project |
-| 3 | `~/.claude/arch-advisor/lanes.json` | All projects |
+| 3 | `~/.claude/arch-advisor/lanes.json` (or under `CLAUDE_CONFIG_DIR`) | All projects |
 | 4 | Plugin `config/lanes.json` | Defaults |
 
-Copy the default file to the desired scope and edit it. Keep all three lane
+The picker preserves existing configuration and unselected fields. For manual
+configuration, copy the default file to the desired scope and edit it. Keep all three lane
 entries; adding a lane also requires an agent definition under `agents/`.
 
 ```json
 "2nd-advisor": {
   "agent": "2nd-advisor",
   "model": "gpt-6-astra",
+  "default_effort": "high",
   "efforts": ["low", "medium", "high", "xhigh", "max"],
   "timeout_seconds": 900
 }
@@ -63,15 +121,18 @@ All shipped Codex lanes declare `low`, `medium`, `high`, `xhigh` and `max`.
 `none`/`ultra` on Luna; those historical observations do not enable them here.
 CLI settings and API model support can differ; see the
 [official model guidance](https://learn.chatgpt.com/docs/models) for current support.
-`efforts: null` means undeclared. With no requested effort, callers omit the flag
-and report that Codex used its own default. An explicit effort is rejected before
-any Codex call when the allowlist is null; declare the rungs to enable it. A
+`efforts: null` means undeclared. When neither a task effort nor a saved default
+exists, callers omit the flag and report that Codex used its own default. An
+explicit or saved effort is rejected before any Codex call when the allowlist is
+null; declare the rungs to enable it. A
 requested effort is never silently dropped. Account access and accepted efforts should be checked
 with a live smoke test; local validation only enforces the declared allowlist.
 
-Changing Codex model selection is a configuration edit. Changing the Claude
-reviewer's model is an edit to `agents/arch-advisor.md`; `opus` is a moving alias,
-so the default uses the exact `claude-opus-5-5` ID.
+`ARCH_ADVISOR_CONFIG` takes priority over the picker, which refuses to save while
+that variable is set. A project configuration also takes priority over user
+preferences; the command reports when a user selection is masked in the current
+workspace. Models such as `opus` are moving aliases; the factory reviewer uses
+the exact `claude-opus-5-5` ID.
 
 ## Use the advisors
 

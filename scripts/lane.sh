@@ -17,14 +17,14 @@ set -eu
 
 die() { echo "arch-advisor: $1" >&2; exit "${2:-1}"; }
 
-command -v jq >/dev/null 2>&1 || die "jq is required but not on PATH (brew install jq)" 3
+command -v jq >/dev/null 2>&1 || die "jq is required but not on PATH (Ubuntu: sudo apt install jq; macOS: brew install jq)" 3
 
 find_config() {
   [ -n "${ARCH_ADVISOR_CONFIG:-}" ] && { [ -f "$ARCH_ADVISOR_CONFIG" ] || die "ARCH_ADVISOR_CONFIG points at a missing file: $ARCH_ADVISOR_CONFIG" 3; printf '%s\n' "$ARCH_ADVISOR_CONFIG"; return; }
   script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
   for candidate in \
     "$PWD/.arch-advisor/lanes.json" \
-    "$HOME/.claude/arch-advisor/lanes.json" \
+    "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/arch-advisor/lanes.json" \
     "$script_dir/../config/lanes.json"
   do
     [ -f "$candidate" ] && { printf '%s\n' "$candidate"; return; }
@@ -51,7 +51,7 @@ case "$cmd" in
   list)
     printf 'lanes.json: %s\n\n' "$CONFIG"
     jq -r '.lanes | to_entries[] |
-      "  \(.key)\n    agent:   \(.value.agent)\n    model:   \(.value.model)\n    efforts: \(if .value.efforts == null then "(not declared — omit for codex default; explicit effort is refused)" else (.value.efforts | join(", ")) end)\n    timeout: \(.value.timeout_seconds)s\n"' "$CONFIG"
+      "  \(.key)\n    agent:   \(.value.agent)\n    model:   \(.value.model)\n    default effort: \(.value.default_effort // "<codex default>")\n    efforts: \(if .value.efforts == null then "(not declared — configured/requested effort is refused)" else (.value.efforts | join(", ")) end)\n    timeout: \(.value.timeout_seconds)s\n"' "$CONFIG"
     ;;
 
   resolve)
@@ -65,6 +65,7 @@ case "$cmd" in
       "LANE_NAME=" + ($l | q),
       "LANE_MODEL=" + (.model | q),
       "LANE_TIMEOUT=" + (.timeout_seconds | q),
+      "LANE_DEFAULT_EFFORT=" + ((.default_effort // "") | q),
       "LANE_EFFORTS=" + ((if .efforts == null then "" else (.efforts | join(" ")) end) | q),
       "LANE_EFFORTS_DECLARED=" + ((if .efforts == null then 0 else 1 end) | q)' "$CONFIG"
     ;;

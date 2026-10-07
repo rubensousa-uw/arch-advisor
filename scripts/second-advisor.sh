@@ -25,6 +25,7 @@ WORKSPACE=$(CDPATH= cd -- "$WORKSPACE" && pwd)
 cd -- "$WORKSPACE"
 resolved=$("$script_dir/lane.sh" resolve 2nd-advisor) || fail unavailable "Cannot resolve 2nd-advisor lane"
 eval "$resolved"
+EFFORT=${EFFORT:-$LANE_DEFAULT_EFFORT}
 if [ -n "$EFFORT" ]; then
   validation=$("$script_dir/lane.sh" validate 2nd-advisor "$EFFORT" 2>&1) || fail unavailable "$validation" 4
 fi

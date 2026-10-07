@@ -1,7 +1,7 @@
 {
   "name": "arch-advisor",
-  "version": "6.1.1",
-  "description": "Claude architecture and coordination, configurable Luna and Sol Codex implementation lanes, and independent read-only reviews by Claude Opus 5.5 and Codex Astra before reporting done.",
+  "version": "6.2.0",
+  "description": "Claude orchestration with selection boxes for persistent model and effort defaults, configurable Codex implementation lanes, and independent read-only Claude and Codex advisors.",
   "author": {
     "name": "Ruben Sousa",
     "url": "https://github.com/rubensousa-uw"

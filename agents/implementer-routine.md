@@ -23,7 +23,8 @@ cd -- "$WORKSPACE"
 # marketplace installed from a local directory, where no ~/.claude/plugins
 # copy exists.
 LANE_SH=""
-for c in "${ARCH_ADVISOR_HOME:-/nonexistent}/scripts/lane.sh" \
+for c in "${CLAUDE_PLUGIN_ROOT}/scripts/lane.sh" \
+         "${ARCH_ADVISOR_HOME:-/nonexistent}/scripts/lane.sh" \
          "${CLAUDE_PLUGIN_ROOT:-/nonexistent}/scripts/lane.sh" \
          "$HOME/.claude/plugins/marketplaces/arch-advisor/scripts/lane.sh" \
          "$(jq -r '.extraKnownMarketplaces["arch-advisor"].source.path // "/nonexistent"' "$HOME/.claude/settings.json" 2>/dev/null)/scripts/lane.sh"; do
@@ -69,7 +70,7 @@ fi
 
 The codex CLI does **not** validate `model_reasoning_effort` client-side — it prints whatever you hand it and lets the API reject it mid-run. `lane.sh validate` is where the refusal actually happens. If it exits non-zero, return `STATUS: unavailable` with its message in `REASON`. Never round a rejected rung to a neighbouring rung.
 
-If the spec omits `REASONING:`, leave `EFFORT` empty and omit the flag — Codex uses the user's default; note this in `GAPS`. If an effort is explicitly supplied but `efforts` is `null`, **refuse before calling Codex**, preserving the validation error. Never silently discard a requested effort, pin one yourself, or round it.
+If the spec omits `REASONING:`, leave `EFFORT` empty and omit the flag. The runner uses `LANE_DEFAULT_EFFORT` if saved, otherwise the global Codex default; report that effective value. If an effort is explicitly supplied but `efforts` is `null`, **refuse before calling Codex**, preserving the validation error. Never silently discard a requested effort, choose a different default yourself, or round it.
 
 ## How you run codex
 
@@ -132,7 +133,7 @@ the runner, or silently continue with previously resolved lane variables.
 
 ```
 CODEX REPORT
-LANE: routine (<$LANE_MODEL>, effort: <as run, or "omitted — codex default">)
+LANE: routine (<$LANE_MODEL>, effort: <as run: task effort, saved lane default, or "omitted — codex default">)
 STATUS: complete | partial | timeout | unavailable | refused
 OBJECTIVE: [restated in one line]
 CHANGES: [file — one-line summary, per file, from the actual diff]

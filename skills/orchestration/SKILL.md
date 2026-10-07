@@ -30,7 +30,22 @@ What stays with the architect regardless of cost: decomposition, interface desig
 | — | Claude Opus 5.5 | `arch-advisor` agent | Read-only advice at commitment boundaries and the mandatory final review. |
 | `2nd-advisor` | GPT-6 Astra | `2nd-advisor` agent | Independent read-only second opinion and mandatory final review; uses Codex CLI, never implements. |
 
-To point a Codex lane at a different model, edit `lanes.json`. The Claude reviewer is pinned to `claude-opus-5-5` in `agents/arch-advisor.md`. The `2nd-advisor` is an advice lane, not a third implementer.
+Use `/arch-advisor:configure` to choose models and default efforts in selection
+boxes. Saved preferences live outside the plugin cache. The `2nd-advisor` is an
+advice lane, not a third implementer.
+
+Before a Claude review, check for `arch-advisor-selected.md` in the project's
+`.claude/agents/` (including ancestors to the repository root), then in
+`${CLAUDE_CONFIG_DIR:-~/.claude}/agents/`. If available, invoke the native
+**arch-advisor-selected** agent, whose frontmatter applies the chosen model and
+default effort. A task with explicit `REASONING: high` uses
+**arch-advisor-selected-high**, likewise for low/medium/xhigh/max. Do not replace
+it with the original scoped agent or override its model. If the generated agent
+has not been discovered yet, report the need to restart; don't substitute a
+different reviewer. Without a configured definition, use the shipped
+`arch-advisor:arch-advisor` (Opus 5.5, session effort). A prompt's REASONING line
+alone does not change a Claude agent's native effort. Flag a conflicting
+CLAUDE_CODE_EFFORT_LEVEL or explicit Agent model override.
 
 Deciding rule: how much does the outcome depend on judgment the spec can't capture? Little → the default routine lane; you will verify anyway. A lot, and mistakes are costly → escalate to `implementer-complex`, or keep that piece with the architect. A routine-lane task that fails its spec once gets a corrected spec; twice, it escalates — repetition is evidence the task was misclassified.
 
@@ -40,7 +55,9 @@ If a lane returns `unavailable` or `timeout`, say so explicitly in your report a
 
 ## Choosing the reasoning effort
 
-Nothing in the lanes pins an effort — the architect names one per task in the spec, and the lane passes it through unchanged. Pick the lowest rung that is adequate; effort is cost and wall-clock, not a quality dial to leave at max.
+The architect can name an effort per task; it overrides the saved lane default.
+If neither is set, the lane inherits the global Codex default. Pick the lowest
+rung that is adequate for the task.
 
 | Rung | Use for |
 |---|---|
@@ -52,9 +69,13 @@ Nothing in the lanes pins an effort — the architect names one per task in the 
 
 **Which rungs a given lane actually accepts is configuration, not doctrine.** `lane.sh list` prints the declared rungs per lane; as shipped, all three Codex lanes declare `low` through `max`; `ultra`, `none` and `minimal` are omitted. GPT-6 Luna does not support `ultra`. A lane refuses an undeclared rung rather than rounding it — the codex CLI itself does *not* validate effort names client-side, so this check is the only thing standing between a typo and a mid-run API rejection. A task that seems to need a rung the default lane lacks is a task for a lane that has it.
 
-An explicit effort is refused when the lane declares `efforts: null`; it is never silently dropped. If you omit the effort, the lane runs codex at the user's own `~/.codex/config.toml` default and flags that in `GAPS` — acceptable for trivial work, never for an escalation.
+An explicit or saved default effort is refused when the lane declares
+`efforts: null`; it is never silently dropped. Omission uses the saved default
+when present, otherwise `~/.codex/config.toml`. Report the effective value.
 
-The architect's own effort and the advisor's come from the session (`/effort`), since Claude Code sets subagent effort per agent definition, not per call. Raise the session effort before an architecture decision or a final review that deserves it; drop it back for routine turns.
+The architect's effort comes from `/effort`. The configured Claude advisor's
+default comes from its generated definition; use the generated effort variant
+for an explicit task effort. The factory reviewer inherits the session effort.
 
 ## The spec contract
 
