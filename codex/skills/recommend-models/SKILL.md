@@ -4,8 +4,11 @@ description: Suggest models for the user's Claude, Codex and optional OpenCode G
 ---
 
 Resolve `../../scripts/recommend.py` relative to this file. The helper needs
-Python 3.10+ and an AA API key in `ARTIFICIAL_ANALYSIS_API_KEY`. Never ask the user
-to paste a key into chat; the terminal command can prompt invisibly without saving it.
+Python 3.10+ and an AA API key. It checks `ARTIFICIAL_ANALYSIS_API_KEY` first, then
+macOS Keychain; reuse either without prompting. Never ask for a key in chat. The
+terminal prompts invisibly only when neither has one, and on macOS saves the key
+in Keychain after a successful AA fetch. Other platforms reuse the environment
+variable. Never put credentials in preference files or command-line arguments.
 
 Ask which services the user has: Claude ✓/✗, Codex ✓/✗, OpenCode Go ✓/✗. Reuse
 answers already provided. OpenCode means Go here, not arbitrary connected API providers.
@@ -19,8 +22,10 @@ python3 <helper> --providers claude codex --json
 Present the returned `lane_recommendations` as a table: component, role, model
 with AA effort, provider/model ID, invocation and routing guidance. All active
 subscriptions compete for EVERY role on the same filtered Pareto frontier. Never
-restrict a role to a fixed provider. Session/routine use the balanced point;
-complex/review use the highest intelligence. These policies are advisor heuristics.
+restrict a role to a fixed provider. EVERY role uses the balanced price/quality
+point, never the highest score alone. Equal metrics/constraints produce the same
+winner for several roles; do not invent task-specific differences. This balance
+is an advisor heuristic.
 The `--host` option only labels current plugin route support; it never filters
 rankings. Preserve manual/unsupported route labels rather than claiming an agent
 can execute them. The helper also returns the frontier and global suggestions. Retain exact model names including effort, AA IDs, source/date and

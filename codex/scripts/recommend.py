@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 import ssl
+import subprocess
 import sys
 import tempfile
 from urllib.error import HTTPError, URLError
@@ -18,6 +19,7 @@ AA_URL = "https://artificialanalysis.ai/api/v2/language/models/free"
 CATALOG_URL = "https://models.dev/api.json"
 PROVIDERS = {"claude": "anthropic", "codex": "openai", "opencode": "opencode-go"}
 SOURCE = "Artificial Analysis — https://artificialanalysis.ai/"
+KEYCHAIN_SERVICE = "arch-advisor.artificial-analysis"
 
 
 class RecommendationError(Exception):
@@ -76,6 +78,39 @@ def read_json(path):
         return json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError):
         raise RecommendationError(f"Cannot read valid JSON from {path}") from None
+
+
+def keychain_key(value=None):
+    if sys.platform != "darwin":
+        return ""
+    try:
+        if value is None:
+            result = subprocess.run(["/usr/bin/security", "find-generic-password", "-a", "api-key",
+                                     "-s", KEYCHAIN_SERVICE, "-w"], capture_output=True, text=True, timeout=30)
+            if result.returncode == 44:  # errSecItemNotFound (-25300), modulo 256.
+                return ""
+        else:
+            # Send hex-encoded credential over stdin, never in process arguments.
+            command = f"add-generic-password -U -a api-key -s {KEYCHAIN_SERVICE} -X {value.encode().hex()}\n"
+            result = subprocess.run(["/usr/bin/security", "-i"], input=command,
+                                    capture_output=True, text=True, timeout=30)
+        if result.returncode:
+            raise RecommendationError("Cannot access macOS Keychain; unlock it or set ARTIFICIAL_ANALYSIS_API_KEY")
+        return result.stdout.strip() if value is None else ""
+    except (OSError, subprocess.TimeoutExpired):
+        raise RecommendationError("macOS Keychain unavailable; set ARTIFICIAL_ANALYSIS_API_KEY") from None
+
+
+def api_key(interactive):
+    key = os.environ.get("ARTIFICIAL_ANALYSIS_API_KEY", "").strip() or keychain_key()
+    prompted = False
+    if not key and interactive:
+        storage = "saved to macOS Keychain after validation" if sys.platform == "darwin" else "not saved; use ARTIFICIAL_ANALYSIS_API_KEY to reuse"
+        key = getpass.getpass(f"AA API key (hidden; {storage}): ").strip()
+        prompted = True
+    if not key:
+        raise RecommendationError("Set ARTIFICIAL_ANALYSIS_API_KEY; create a key at https://artificialanalysis.ai/api-key-management-redirect")
+    return key, prompted
 
 
 def number(value):
@@ -228,35 +263,33 @@ def choices(frontier):
 
 
 def lane_recommendations(frontier, host):
-    selected_models = choices(frontier)
+    selected = choices(frontier)["balanced"]
     specs = [
-        ("session", "Session", "Architecture and coordination", [host], "balanced",
+        ("session", "Session", "Architecture and coordination", [host],
          "/model", "Architecture, planning and coordination"),
-        ("routine", "implementer-routine", "Routine implementation", ["codex"], "balanced",
+        ("routine", "implementer-routine", "Routine implementation", ["codex"],
          "implementer-routine agent" if host == "claude" else "advisor.py run routine",
          "The spec determines the outcome; mechanical edits and ordinary features"),
-        ("complex", "implementer-complex", "Complex implementation", ["codex"], "most_capable",
+        ("complex", "implementer-complex", "Complex implementation", ["codex"],
          "implementer-complex agent" if host == "claude" else "advisor.py run complex",
          "Subtle concurrency, hard debugging, security-sensitive paths and wide refactors"),
         ("second-opinion", "second-opinion", "Independent read-only advice and final review",
-         ["codex"] if host == "claude" else ["claude", "codex"], "most_capable",
+         ["codex"] if host == "claude" else ["claude", "codex"],
          "second-opinion agent" if host == "claude" else "advisor.py opinion",
          "Commitment boundaries and always once at the end, in a separate context"),
     ]
     result = []
-    for lane, component, role, providers, policy, invocation, route_when in specs:
-        selected = selected_models[policy]
+    for lane, component, role, providers, invocation, route_when in specs:
         # Route support describes execution; it must never filter the ranking.
         access = next((a for a in selected["access"] if a["provider"] in providers), selected["access"][0])
         supported = access["provider"] in providers
         effort = re.search(r"\((low|medium|high|xhigh|max)(?:, [^()]*)?\)$", selected["name"], re.I)
         result.append({"lane": lane, "component": component, "role": role,
-                       "policy": policy, "route_supported": supported,
+                       "policy": "balanced", "route_supported": supported,
                        "invocation": invocation if supported else access["provider"] + " manually; plugin route unavailable",
                        "route_when": route_when, "model": selected, "access": access,
                        "benchmark_effort": effort.group(1).lower() if effort else None,
-                       "reason": "Balanced intelligence/cost on the active subscriptions' frontier" if policy == "balanced" else
-                                 "Highest intelligence on the active subscriptions' frontier"})
+                       "reason": "Balanced intelligence/cost on the active subscriptions' frontier"})
     return result
 
 
@@ -365,12 +398,13 @@ def run(args):
         if data["pagination"]["has_more"]:
             raise RecommendationError("--data must include all models in a single-page snapshot")
     else:
-        key = os.environ.get("ARTIFICIAL_ANALYSIS_API_KEY", "").strip()
-        if not key and interactive:
-            key = getpass.getpass("AA API key (hidden; never saved): ").strip()
-        if not key:
-            raise RecommendationError("Set ARTIFICIAL_ANALYSIS_API_KEY; create a key at https://artificialanalysis.ai/api-key-management-redirect")
+        key, prompted = api_key(interactive)
         data = load_aa(key)
+        if prompted:
+            try:
+                keychain_key(key)
+            except RecommendationError as error:
+                print(f"Warning: key not saved. {error}", file=sys.stderr)
     catalog = read_json(args.catalog) if args.catalog else fetch_json(CATALOG_URL)
     entries, warnings = available_models(catalog, providers, read_json(args.available) if args.available else None)
     value = report(data, entries, warnings, f"local snapshot: {args.data}" if args.data else AA_URL, args.host)

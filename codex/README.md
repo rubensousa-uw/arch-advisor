@@ -99,8 +99,13 @@ routing guidance. No inference is used and no lane or
 session model is changed. Recommendations are independent of pending menu edits.
 
 This optional feature needs a free [AA API key](https://artificialanalysis.ai/api-key-management-redirect).
-Set `ARTIFICIAL_ANALYSIS_API_KEY` securely, or enter it at the hidden terminal
-prompt; it is never saved. Noninteractive usage:
+The helper checks `ARTIFICIAL_ANALYSIS_API_KEY`, then macOS Keychain, and prompts
+invisibly only if neither has a key. On macOS, a prompted key is saved after a
+successful AA fetch and reused by both packages (service
+`arch-advisor.artificial-analysis`, account `api-key`). Keys never enter preferences
+or process arguments. Unlock a locked Keychain; to replace a key, delete that item
+in Keychain Access and rerun, or override with the environment variable. Other
+platforms use the environment variable for reuse. Noninteractive usage:
 
 ```sh
 python3 "$ADVISOR_RUNNER" recommend --providers claude codex opencode --json
@@ -112,9 +117,9 @@ or `SSL_CERT_DIR` settings take priority; HTTPS verification remains enabled.
 
 All active subscriptions compete for every role on the same Pareto frontier:
 Codex only uses Codex candidates; Claude + Codex uses both; OpenCode Go joins when
-selected. Session/routine choose a balanced intelligence/cost point;
-complex/review choose the highest intelligence. These are advisor heuristics,
-not AA endorsements. Models may repeat; review must use a separate context.
+selected. Every role uses the balanced intelligence/cost point, never the highest
+score alone. This is an advisor heuristic, not an AA endorsement. With the same
+metrics and constraints, the same model wins every role; review uses a separate context.
 `--host codex` (default) or `--host claude` only labels current execution support;
 it never filters rankings. A winning provider without a native route is marked
 for manual use, including OpenCode Go. JSON retains the global recommendations and adds

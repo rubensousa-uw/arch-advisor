@@ -91,8 +91,8 @@ class RecommendationTests(unittest.TestCase):
                 lanes = results[0]["lane_recommendations"]
                 self.assertEqual(lanes[1]["model"]["slug"], "gpt-smart")
                 self.assertEqual(lanes[1]["benchmark_effort"], "high")
-                self.assertEqual(lanes[2]["access"]["provider"], "claude")
-                self.assertFalse(lanes[2]["route_supported"])
+                self.assertEqual(lanes[2]["access"]["provider"], "codex")
+                self.assertTrue(lanes[2]["route_supported"])
                 with contextlib.redirect_stdout(io.StringIO()) as output:
                     recommend.print_report(results[0])
                 for label in ["| Component |", "implementer-routine", "implementer-complex", "second-opinion", "gpt-smart (High)"]:
@@ -109,6 +109,22 @@ class RecommendationTests(unittest.TestCase):
                 self.assertEqual(lane["access"]["provider"], "opencode")
                 self.assertFalse(lane["route_supported"])
                 self.assertIn("manually", lane["invocation"])
+
+    def test_price_quality_for_all_roles_with_reported_aa_frontier(self):
+        # Regression: do not recommend Fable Max at $26.54 just for its top score.
+        points = [(9.7, .0051), (18.5, .0422), (18.6, .0438), (29.4, .0713),
+                  (29.9, .1586), (34.8, .1615), (38.2, .1688), (42.4, .2593),
+                  (46.3, .3594), (50.3, .5910), (52.5, .7640), (54.6, 1.2721),
+                  (54.8, 3.2386), (55.3, 3.6589), (56.4, 3.8026), (57.4, 6.0472),
+                  (61.8, 9.0784), (62.2, 14.8286), (64.6, 26.5386)]
+        rows = [{"id": str(i), "name": str(i), "intelligence": score, "cost_per_task_usd": cost,
+                 "access": [{"provider": "codex" if i < 14 else "claude", "model_id": str(i)}]}
+                for i, (score, cost) in enumerate(points)]
+        for host in ["claude", "codex"]:
+            lanes = recommend.lane_recommendations(recommend.pareto(rows), host)
+            self.assertEqual({r["policy"] for r in lanes}, {"balanced"})
+            self.assertEqual({r["model"]["intelligence"] for r in lanes}, {54.6})
+            self.assertEqual({r["model"]["cost_per_task_usd"] for r in lanes}, {1.2721})
 
     def test_frontier_filters_access_before_dominance(self):
         entries, warnings = recommend.available_models(catalog(), ["codex"])
@@ -272,17 +288,69 @@ class RecommendationTests(unittest.TestCase):
             self.assertEqual(json.loads(before), {"providers": ["claude", "opencode"]})
 
     def test_missing_key_and_noninteractive_questionnaire_fail_without_network(self):
-        with patch.dict(os.environ, {"ARTIFICIAL_ANALYSIS_API_KEY": ""}), patch.object(recommend, "fetch_json") as get:
+        with patch.dict(os.environ, {"ARTIFICIAL_ANALYSIS_API_KEY": ""}), patch.object(recommend, "keychain_key", return_value=""), patch.object(recommend, "fetch_json") as get:
             with contextlib.redirect_stderr(io.StringIO()) as errors:
                 self.assertEqual(recommend.main(["--providers", "claude"]), 4)
                 self.assertEqual(recommend.main([]), 4)
             self.assertIn("ARTIFICIAL_ANALYSIS_API_KEY", errors.getvalue())
             get.assert_not_called()
 
-    def test_interactive_full_run_saves_only_access_not_hidden_key(self):
+    def test_api_key_reuses_environment_then_keychain_without_prompting(self):
+        with patch.object(recommend, "keychain_key", return_value="saved-key") as store, \
+             patch.object(recommend.getpass, "getpass") as prompt:
+            with patch.dict(os.environ, {"ARTIFICIAL_ANALYSIS_API_KEY": "env-key"}):
+                self.assertEqual(recommend.api_key(True), ("env-key", False))
+                store.assert_not_called()
+            with patch.dict(os.environ, {"ARTIFICIAL_ANALYSIS_API_KEY": ""}):
+                self.assertEqual(recommend.api_key(True), ("saved-key", False))
+                self.assertEqual(recommend.api_key(False), ("saved-key", False))
+            prompt.assert_not_called()
+        with patch.dict(os.environ, {"ARTIFICIAL_ANALYSIS_API_KEY": ""}), \
+             patch.object(recommend, "keychain_key", side_effect=recommend.RecommendationError("locked")), \
+             patch.object(recommend.getpass, "getpass") as prompt:
+            with self.assertRaises(recommend.RecommendationError):
+                recommend.api_key(True)
+            prompt.assert_not_called()
+
+    def test_keychain_keeps_credentials_out_of_argv_and_errors(self):
+        with patch.object(sys, "platform", "darwin"), patch.object(subprocess, "run") as run:
+            run.return_value = subprocess.CompletedProcess([], 0, "saved-key\n", "")
+            self.assertEqual(recommend.keychain_key(), "saved-key")
+            self.assertEqual(run.call_args.args[0][-1], "-w")
+            key = 'secret with "quotes"\ncommand'
+            recommend.keychain_key(key)
+            self.assertEqual(run.call_args.args[0], ["/usr/bin/security", "-i"])
+            command = run.call_args.kwargs["input"]
+            self.assertEqual(command.count("\n"), 1)
+            self.assertNotIn(key, command)
+            self.assertIn(key.encode().hex(), command)
+            run.return_value = subprocess.CompletedProcess([], 44, "", "secret")
+            self.assertEqual(recommend.keychain_key(), "")
+            for code in [1, 36, 128]:
+                run.return_value = subprocess.CompletedProcess([], code, "secret", "secret")
+                with self.assertRaises(recommend.RecommendationError) as error:
+                    recommend.keychain_key()
+                self.assertNotIn("secret", str(error.exception))
+            run.side_effect = subprocess.TimeoutExpired("secret", 30, output="secret")
+            with self.assertRaises(recommend.RecommendationError) as error:
+                recommend.keychain_key()
+            self.assertNotIn("secret", str(error.exception))
+        with patch.object(sys, "platform", "linux"), patch.object(subprocess, "run") as run:
+            self.assertEqual(recommend.keychain_key(), "")
+            run.assert_not_called()
+
+    def test_failed_aa_request_does_not_store_prompted_key(self):
+        with patch.object(recommend, "api_key", return_value=("secret", True)), \
+             patch.object(recommend, "load_aa", side_effect=recommend.RecommendationError("HTTP 401")), \
+             patch.object(recommend, "keychain_key") as store, contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(recommend.main(["--providers", "codex"]), 4)
+            store.assert_not_called()
+
+    def test_interactive_full_run_saves_key_only_in_keychain(self):
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory) / "access.json"
             with (patch.dict(os.environ, {"ARTIFICIAL_ANALYSIS_API_KEY": ""}),
+                  patch.object(recommend, "keychain_key", return_value="") as store,
                   patch.object(sys.stdin, "isatty", return_value=True),
                   patch.object(sys.stdout, "isatty", return_value=True),
                   patch("builtins.input", side_effect=["s", "s", "n"]),
@@ -296,6 +364,7 @@ class RecommendationTests(unittest.TestCase):
             self.assertNotIn("private-aa-key", target.read_text() + output.getvalue())
             self.assertEqual(fetch.call_args_list[0].args, (recommend.AA_URL + "?page=1", "private-aa-key"))
             self.assertEqual(fetch.call_args_list[1].args, (recommend.CATALOG_URL,))
+            self.assertEqual([c.args for c in store.call_args_list], [(), ("private-aa-key",)])
 
     def test_snapshot_rejects_partial_data_duplicate_ids_and_terminal_controls(self):
         for data in [page([model("x", 1, 1), model("x", 2, 2)]),

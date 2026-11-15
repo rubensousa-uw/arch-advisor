@@ -131,9 +131,15 @@ The selected access routes are the only saved settings. Lane and session models
 are never changed, and no inference calls are made.
 
 Create a free [AA API key](https://artificialanalysis.ai/api-key-management-redirect).
-The terminal asks for it invisibly each time if `ARTIFICIAL_ANALYSIS_API_KEY` is
-unset; keys are never saved. For scripts or the conversational skill, set that
-environment variable securely and supply access explicitly:
+The helper first uses `ARTIFICIAL_ANALYSIS_API_KEY`, then the macOS Keychain.
+It only prompts invisibly if neither has a key. On macOS, a prompted key is saved
+after a successful AA fetch under service `arch-advisor.artificial-analysis`,
+account `api-key`, and reused across both packages and future runs. It is never
+written to preferences or command-line arguments. If the Keychain is locked,
+unlock it; the helper reports the error rather than asking for the key again.
+To replace a saved key, delete that item in Keychain Access and rerun, or override
+it with the environment variable. Other platforms use the environment variable
+for reuse. For scripts or the conversational skill, supply access explicitly:
 
 ```sh
 python3 scripts/recommend.py --providers claude codex opencode --json
@@ -153,12 +159,13 @@ means the union; enabling OpenCode Go adds its candidates too.
 | --- | --- |
 | Session | Balanced intelligence/cost |
 | `implementer-routine` | Balanced intelligence/cost |
-| `implementer-complex` | Highest intelligence |
-| `second-opinion` | Highest intelligence |
+| `implementer-complex` | Balanced intelligence/cost |
+| `second-opinion` | Balanced intelligence/cost |
 
-These are advisor heuristics, not AA task-specific evaluations. Routine uses the
-balanced point rather than the absolute cheapest model. A model may fill several
-roles; review independence requires a separate context. The table is a proposal,
+This is an advisor heuristic, not an AA task-specific evaluation. All roles use
+the price/quality balance, never the highest score alone. With the same metrics
+and access constraints, the same model wins all roles; different models require
+task-specific evidence or constraints. Review independence requires a separate context. The table is a proposal,
 not saved settings; confirm model/effort support before applying it.
 
 `--host claude` (this entrypoint's default) or `--host codex` labels which current
