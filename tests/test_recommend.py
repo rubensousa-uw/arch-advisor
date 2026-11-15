@@ -84,18 +84,23 @@ class RecommendationTests(unittest.TestCase):
                              [r["model"] for r in results[1]["lane_recommendations"]])
             for result in results:
                 for lane in result["lane_recommendations"]:
-                    self.assertIn(lane["access"]["provider"], providers)
-                    self.assertIn(lane["model"], result["frontier"])
-                    self.assertEqual(lane["model"], result["recommendations"][lane["policy"]])
+                    eligible = [r for r in result["frontier"] if r["intelligence"] >= lane["min_intelligence"]]
+                    if eligible:
+                        self.assertIn(lane["access"]["provider"], providers)
+                        self.assertIn(lane["model"], eligible)
+                        self.assertEqual(lane["model"]["cost_per_task_usd"], min(r["cost_per_task_usd"] for r in eligible))
+                    else:
+                        self.assertIsNone(lane["model"])
+                    self.assertEqual(lane["policy"], "cheapest_above_quality_floor")
             if providers == ["claude", "codex"]:
                 lanes = results[0]["lane_recommendations"]
                 self.assertEqual(lanes[1]["model"]["slug"], "gpt-smart")
-                self.assertEqual(lanes[1]["benchmark_effort"], "high")
-                self.assertEqual(lanes[2]["access"]["provider"], "codex")
-                self.assertTrue(lanes[2]["route_supported"])
+                self.assertEqual(lanes[0]["access"]["provider"], "claude")
+                self.assertIsNone(lanes[2]["model"])
+                self.assertFalse(lanes[2]["route_supported"])
                 with contextlib.redirect_stdout(io.StringIO()) as output:
                     recommend.print_report(results[0])
-                for label in ["| Component |", "implementer-routine", "implementer-complex", "second-opinion", "gpt-smart (High)"]:
+                for label in ["| Component |", "implementer-routine", "implementer-complex", "second-opinion", "Minimum quality", "No qualifying model"]:
                     self.assertIn(label, output.getvalue())
 
     def test_opencode_can_win_all_lanes_without_a_native_route(self):
@@ -121,10 +126,13 @@ class RecommendationTests(unittest.TestCase):
                  "access": [{"provider": "codex" if i < 14 else "claude", "model_id": str(i)}]}
                 for i, (score, cost) in enumerate(points)]
         for host in ["claude", "codex"]:
-            lanes = recommend.lane_recommendations(recommend.pareto(rows), host)
-            self.assertEqual({r["policy"] for r in lanes}, {"balanced"})
-            self.assertEqual({r["model"]["intelligence"] for r in lanes}, {54.6})
-            self.assertEqual({r["model"]["cost_per_task_usd"] for r in lanes}, {1.2721})
+            # Explicit floors avoid pretending this pasted frontier is the full AA population.
+            thresholds = {lane: {"min_percentile": p, "min_intelligence": score}
+                          for lane, p, score in [("session", 75, 50), ("routine", 50, 35),
+                                                 ("complex", 90, 54), ("second-opinion", 90, 54)]}
+            lanes = recommend.lane_recommendations(recommend.pareto(rows), host, thresholds)
+            self.assertEqual([r["model"]["intelligence"] for r in lanes], [50.3, 38.2, 54.6, 54.6])
+            self.assertEqual([r["model"]["cost_per_task_usd"] for r in lanes], [.5910, .1688, 1.2721, 1.2721])
 
     def test_frontier_filters_access_before_dominance(self):
         entries, warnings = recommend.available_models(catalog(), ["codex"])
@@ -137,6 +145,46 @@ class RecommendationTests(unittest.TestCase):
         self.assertEqual([r["slug"] for r in result["frontier"]], ["deepseek-new", "gpt-smart", "claude-large"])
         self.assertEqual(result["recommendations"]["balanced"]["slug"], "gpt-smart")
         self.assertEqual(result["unmatched"], [{"provider": "opencode", "model_id": "unknown-free"}])
+
+    def test_quality_reference_is_global_and_independent_of_access_and_price(self):
+        thresholds, count = recommend.quality_thresholds(dataset(), recommend.MIN_PERCENTILES)
+        self.assertEqual(count, 7)
+        self.assertEqual({k: v["min_intelligence"] for k, v in thresholds.items()},
+                         {"session": 55, "routine": 40, "complex": 99, "second-opinion": 99})
+        for providers in [["codex"], ["claude", "codex"], ["opencode"]]:
+            entries, warnings = recommend.available_models(catalog(), providers)
+            result = recommend.report(dataset(), entries, warnings, "fixture")
+            self.assertEqual(result["quality_reference"]["population_count"], 7)
+            self.assertEqual({r["lane"]: r["min_intelligence"] for r in result["lane_recommendations"]},
+                             {k: v["min_intelligence"] for k, v in thresholds.items()})
+        data = dataset()
+        for row in data["data"]:
+            row["artificial_analysis_intelligence_index_cost"]["cost_per_task"]["total_cost"] = 1000000
+        self.assertEqual(recommend.quality_thresholds(data, recommend.MIN_PERCENTILES), (thresholds, count))
+
+    def test_percentile_ties_endpoints_invalid_scores_and_no_silent_downgrade(self):
+        data = page([model(str(i), score, 1) for i, score in enumerate([None, True, -1, float("nan"), float("inf"), 0, 10, 10, 20])])
+        thresholds, count = recommend.quality_thresholds(data, {"session": 0, "routine": 50, "complex": 100})
+        self.assertEqual(count, 4)
+        self.assertEqual([v["min_intelligence"] for v in thresholds.values()], [0, 10, 20])
+        with self.assertRaises(recommend.RecommendationError):
+            recommend.quality_thresholds(page([model("x", None, 1)]), recommend.MIN_PERCENTILES)
+        entries, warnings = recommend.available_models(catalog(), ["codex"])
+        result = recommend.report(dataset(), entries, warnings, "fixture")
+        self.assertIsNone(result["lane_recommendations"][2]["model"])
+        minimums = dict(recommend.MIN_PERCENTILES, complex=60)
+        result = recommend.report(dataset(), entries, warnings, "fixture", minimums=minimums)
+        self.assertEqual(result["lane_recommendations"][2]["model"]["slug"], "gpt-smart")
+
+    def test_minimum_percentile_cli_validation_happens_before_key_or_network(self):
+        for invalid in ["bad=50", "routine=-1", "complex=101", "session=nan", "session=inf", "routine", "session=x"]:
+            with self.subTest(invalid=invalid), patch.object(recommend, "api_key") as key, \
+                 patch.object(recommend, "fetch_json") as fetch, contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as error:
+                    recommend.main(["--providers", "codex", "--min-percentile", invalid])
+                self.assertEqual(error.exception.code, 2)
+                key.assert_not_called()
+                fetch.assert_not_called()
 
     def test_pareto_strict_dominance_ties_and_zero(self):
         rows = [{"id": i, "intelligence": s, "cost_per_task_usd": c}
@@ -260,12 +308,14 @@ class RecommendationTests(unittest.TestCase):
                         [sys.executable, str(ROOT / "codex/scripts/advisor.py"), "recommend"],
                         [sys.executable, str(portable / "scripts/advisor.py"), "recommend"]]
             for command in commands:
-                result = subprocess.run(command + ["--providers", "codex", "--data", str(data), "--catalog", str(cat), "--available", str(access), "--json"],
+                result = subprocess.run(command + ["--providers", "codex", "--data", str(data), "--catalog", str(cat), "--available", str(access), "--min-percentile", "complex=60", "--json"],
                                         capture_output=True, text=True, env=env)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 value = json.loads(result.stdout)
                 self.assertEqual(value["host"], "claude" if command[1] == str(ROOT / "scripts/recommend.py") else "codex")
                 self.assertEqual(len(value["lane_recommendations"]), 4)
+                self.assertEqual(value["lane_recommendations"][2]["min_percentile"], 60)
+                self.assertEqual(value["lane_recommendations"][2]["model"]["slug"], "gpt-smart")
                 self.assertEqual(value["recommendations"]["most_capable"]["slug"], "gpt-smart")
                 self.assertIn("local snapshot", value["data_source"])
                 self.assertIn("Artificial Analysis", value["source"])

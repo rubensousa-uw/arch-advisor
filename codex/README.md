@@ -117,9 +117,19 @@ or `SSL_CERT_DIR` settings take priority; HTTPS verification remains enabled.
 
 All active subscriptions compete for every role on the same Pareto frontier:
 Codex only uses Codex candidates; Claude + Codex uses both; OpenCode Go joins when
-selected. Every role uses the balanced intelligence/cost point, never the highest
-score alone. This is an advisor heuristic, not an AA endorsement. With the same
-metrics and constraints, the same model wins every role; review uses a separate context.
+selected. Every role picks the **cheapest frontier model above its quality floor**:
+session P75, routine P50, complex/review P90 by default. This adapts the idea from
+[OpenRouter Pareto Router](https://openrouter.ai/docs/guides/routing/routers/pareto-router),
+without calling OpenRouter or importing its coding tiers. Override per invocation
+with `--min-percentile routine=40 --min-percentile complex=80` (0–100).
+
+The helper calculates nearest-rank percentiles across all valid general Intelligence
+Index entries in the AA response, including effort variants and entries missing
+costs, before subscription filtering. The output shows both the percentile and raw
+score cutoff. These defaults are advisor policies; the percentiles are not official
+coding ranks or success probabilities. A missing qualifying model leaves a role
+without a suggestion, never an automatic downgrade. Models may repeat; review
+uses a separate context. Threshold overrides are not persisted.
 `--host codex` (default) or `--host claude` only labels current execution support;
 it never filters rankings. A winning provider without a native route is marked
 for manual use, including OpenCode Go. JSON retains the global recommendations and adds
@@ -137,9 +147,10 @@ AA costs are **benchmark API costs, not your bill or Go allowance usage**. The
 score is the general Intelligence Index, not a coding-only score. Missing scores
 or costs are excluded; unmatched model IDs are reported, not guessed. Exact
 effort variants are retained, but CLI support, account access, quotas, regions
-and privacy eligibility still need confirmation. Balanced means equal-weight
-normalized distance to the ideal cost/score, not an AA endorsement. Suggestions
-may coincide. AA attribution, date, index version and limitations accompany output.
+and privacy eligibility still need confirmation. The global balanced point in JSON
+is a comparison reference only; role selection minimizes cost above a quality floor.
+Cost ties prefer higher intelligence, then AA ID. AA attribution, date, index version
+and limitations accompany output.
 
 `--data complete-aa.json --catalog models.json` runs without network or a key and
 labels the result as a snapshot. AA data must be a complete v2 single-page

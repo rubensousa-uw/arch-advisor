@@ -155,18 +155,37 @@ All models from the selected active subscriptions compete for **every role** on
 the same Pareto frontier. Codex only means Codex candidates only; Claude + Codex
 means the union; enabling OpenCode Go adds its candidates too.
 
-| Component | Selection policy on the active subscriptions' frontier |
+| Component | Minimum general-intelligence percentile |
 | --- | --- |
-| Session | Balanced intelligence/cost |
-| `implementer-routine` | Balanced intelligence/cost |
-| `implementer-complex` | Balanced intelligence/cost |
-| `second-opinion` | Balanced intelligence/cost |
+| Session | P75 |
+| `implementer-routine` | P50 |
+| `implementer-complex` | P90 |
+| `second-opinion` | P90 |
 
-This is an advisor heuristic, not an AA task-specific evaluation. All roles use
-the price/quality balance, never the highest score alone. With the same metrics
-and access constraints, the same model wins all roles; different models require
-task-specific evidence or constraints. Review independence requires a separate context. The table is a proposal,
-not saved settings; confirm model/effort support before applying it.
+For every role, choose the **cheapest frontier model meeting the quality floor**.
+This adapts the minimum-quality/lowest-price idea from the
+[OpenRouter Pareto Router](https://openrouter.ai/docs/guides/routing/routers/pareto-router);
+it does not call OpenRouter or use its curated coding tiers. The defaults above
+are advisor policies, not validated task-specific requirements or AA endorsements.
+Override them explicitly, for example:
+
+```sh
+python3 scripts/recommend.py --min-percentile routine=40 --min-percentile complex=80
+```
+
+Percentiles use the nearest-rank method across **all AA entries with a valid
+general Intelligence Index**, including effort variants and entries without cost
+measurements, before filtering subscriptions. P75 is the score at rank
+`ceil(0.75 * N)` in the sorted population; P0 uses its minimum. Ties share a cutoff.
+These are locally calculated intelligence percentiles, not official AA coding
+percentiles or success probabilities. New benchmark entries can move the cutoff.
+The table shows both the percentile and the raw AA score required. Changing active
+subscriptions changes the candidates, not the quality bar for that AA snapshot.
+
+No qualifying accessible model means **no suggestion for that role**; the helper
+never silently lowers the floor. Role overrides apply to that invocation and are
+not saved. Models may repeat; review independence requires a separate context.
+Suggestions are not applied automatically. Confirm model/effort support before use.
 
 `--host claude` (this entrypoint's default) or `--host codex` labels which current
 plugin routes can execute a suggestion. It never changes the ranking. If the
@@ -192,10 +211,11 @@ execution come from the catalog, not from AA slugs.
 The filtered Pareto frontier maximizes the **AA Intelligence Index** and minimizes
 **AA cost per Intelligence Index task**. A candidate is excluded only when another
 is at least as capable and no more expensive, with one strict improvement. Ties
-remain. The JSON also retains the global cheapest frontier point, highest score, and a
+remain. For comparison only, JSON also retains the global cheapest frontier point, highest score, and a
 balanced point minimizing equal-weight squared distance to the ideal after
 normalizing both axes to the frontier's ranges. This balance is our heuristic,
-not an AA ranking. The same model may fill several roles in a small frontier.
+not an AA ranking, and does not select the role suggestions. Selection minimizes
+cost subject to the quality floor; cost ties prefer higher intelligence, then AA ID.
 
 Costs are **API benchmark reference costs**, not subscription charges, remaining
 quotas or OpenCode Go allowance consumption. The Intelligence Index is general,

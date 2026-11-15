@@ -22,15 +22,20 @@ python3 <helper> --providers claude codex --json
 Present the returned `lane_recommendations` as a table: component, role, model
 with AA effort, provider/model ID, invocation and routing guidance. All active
 subscriptions compete for EVERY role on the same filtered Pareto frontier. Never
-restrict a role to a fixed provider. EVERY role uses the balanced price/quality
-point, never the highest score alone. Equal metrics/constraints produce the same
-winner for several roles; do not invent task-specific differences. This balance
-is an advisor heuristic.
+restrict a role to a fixed provider. EVERY role picks the cheapest frontier model
+meeting its minimum general-intelligence percentile: session P75, routine P50,
+complex/review P90 by default. Use `--min-percentile ROLE=0..100` to override a
+floor explicitly; repeat for several roles. These are advisor defaults, not
+OpenRouter tiers or official AA coding percentiles. They use nearest-rank
+percentiles across all valid AA Intelligence Index entries (including effort
+variants), before subscription filtering. Show the percentile AND its raw score
+cutoff. If a role has no qualifying model, preserve that result without lowering
+the bar or inventing a substitute. Models may repeat; review uses a fresh context.
 The `--host` option only labels current plugin route support; it never filters
 rankings. Preserve manual/unsupported route labels rather than claiming an agent
 can execute them. The helper also returns the frontier and global suggestions. Retain exact model names including effort, AA IDs, source/date and
-access routes. Explain that balance is a normalized equal-weight heuristic,
-not an AA endorsement. Attribute data to https://artificialanalysis.ai/.
+access routes. The global balanced point in JSON is only a comparison reference;
+role selection uses minimum quality then minimum cost, not maximum score alone. Attribute data to https://artificialanalysis.ai/.
 
 The helper matches catalog model IDs/names exactly apart from punctuation and
 reasoning labels. It reports unmatched models and skips missing metrics. Do not

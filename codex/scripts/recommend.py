@@ -20,6 +20,7 @@ CATALOG_URL = "https://models.dev/api.json"
 PROVIDERS = {"claude": "anthropic", "codex": "openai", "opencode": "opencode-go"}
 SOURCE = "Artificial Analysis — https://artificialanalysis.ai/"
 KEYCHAIN_SERVICE = "arch-advisor.artificial-analysis"
+MIN_PERCENTILES = {"session": 75, "routine": 50, "complex": 90, "second-opinion": 90}
 
 
 class RecommendationError(Exception):
@@ -262,8 +263,23 @@ def choices(frontier):
     return {"economical": low, "balanced": balanced, "most_capable": high}
 
 
-def lane_recommendations(frontier, host):
-    selected = choices(frontier)["balanced"]
+def quality_thresholds(data, minimums):
+    scores = []
+    for row in data["data"]:
+        evaluations = row.get("evaluations")
+        score = evaluations.get("artificial_analysis_intelligence_index") if isinstance(evaluations, dict) else None
+        if number(score):
+            scores.append(score)
+    scores.sort()
+    if not scores:
+        raise RecommendationError("No valid AA intelligence scores for quality thresholds")
+    thresholds = {lane: {"min_percentile": percentile,
+                         "min_intelligence": scores[max(0, math.ceil(percentile / 100 * len(scores)) - 1)]}
+                  for lane, percentile in minimums.items()}
+    return thresholds, len(scores)
+
+
+def lane_recommendations(frontier, host, thresholds):
     specs = [
         ("session", "Session", "Architecture and coordination", [host],
          "/model", "Architecture, planning and coordination"),
@@ -280,31 +296,40 @@ def lane_recommendations(frontier, host):
     ]
     result = []
     for lane, component, role, providers, invocation, route_when in specs:
+        threshold = thresholds[lane]
+        eligible = [row for row in frontier if row["intelligence"] >= threshold["min_intelligence"]]
+        selected = min(eligible, key=lambda r: (r["cost_per_task_usd"], -r["intelligence"], r["id"])) if eligible else None
         # Route support describes execution; it must never filter the ranking.
-        access = next((a for a in selected["access"] if a["provider"] in providers), selected["access"][0])
-        supported = access["provider"] in providers
-        effort = re.search(r"\((low|medium|high|xhigh|max)(?:, [^()]*)?\)$", selected["name"], re.I)
+        access = next((a for a in selected["access"] if a["provider"] in providers), selected["access"][0]) if selected else None
+        supported = bool(access and access["provider"] in providers)
+        effort = re.search(r"\((low|medium|high|xhigh|max)(?:, [^()]*)?\)$", selected["name"], re.I) if selected else None
         result.append({"lane": lane, "component": component, "role": role,
-                       "policy": "balanced", "route_supported": supported,
-                       "invocation": invocation if supported else access["provider"] + " manually; plugin route unavailable",
+                       "policy": "cheapest_above_quality_floor", **threshold, "route_supported": supported,
+                       "invocation": invocation if supported else access["provider"] + " manually; plugin route unavailable" if access else "—",
                        "route_when": route_when, "model": selected, "access": access,
                        "benchmark_effort": effort.group(1).lower() if effort else None,
-                       "reason": "Balanced intelligence/cost on the active subscriptions' frontier"})
+                       "reason": "Cheapest Pareto model meeting the quality floor" if selected else
+                                 "No model in your active subscriptions meets this quality floor; no automatic downgrade"})
     return result
 
 
-def report(data, entries, warnings, source, host="codex"):
+def report(data, entries, warnings, source, host="codex", minimums=None):
     rows, skipped, unmatched = candidates(data["data"], entries)
     frontier = pareto(rows)
     if not frontier:
         raise RecommendationError("No matched models have both intelligence and cost per task. Check access IDs and AA coverage.")
+    thresholds, population_count = quality_thresholds(data, minimums if minimums is not None else MIN_PERCENTILES)
     return {"source": SOURCE, "data_source": source, "retrieved_at": datetime.now(timezone.utc).isoformat(),
             "intelligence_index_version": data["intelligence_index_version"],
             "axes": {"maximize": "intelligence", "minimize": "cost_per_task_usd"},
             "cost_basis": "AA benchmark API cost per task; NOT subscription price, quota or Go allowance consumption",
             "balance_method": "Equal-weight normalized distance to ideal intelligence/cost within the filtered frontier",
             "recommendations": choices(frontier), "host": host,
-            "lane_recommendations": lane_recommendations(frontier, host),
+            "selection_method": "Cheapest Pareto model meeting each role's minimum intelligence percentile",
+            "quality_reference": {"population_count": population_count,
+                                  "population": "All AA entries with valid Intelligence Index, including effort variants, before subscription filtering",
+                                  "method": "Nearest-rank percentile of general intelligence, computed locally; not an AA coding percentile"},
+            "lane_recommendations": lane_recommendations(frontier, host, thresholds),
             "frontier": frontier, "candidate_count": len(rows), "skipped": skipped, "unmatched": unmatched,
             "warnings": warnings + ["General Intelligence Index, not a coding-only ranking. Benchmark effort variants are shown; CLI support is not verified.",
                                       "Public catalogs do not prove subscription entitlement, remaining quota, region or privacy eligibility.",
@@ -316,22 +341,24 @@ def print_report(value):
     print(f"\n{SOURCE}\nIndex v{value['intelligence_index_version']} | {value['data_source']} | {value['retrieved_at']}")
     print(value["cost_basis"])
     print(f"\nSuggested setup for the {value['host'].title()} plugin (not applied):")
-    print("| Component | Role | Suggested model (AA variant) | Access / model ID | Invocation | Route here when |")
-    print("| --- | --- | --- | --- | --- | --- |")
+    print("| Component | Role | Minimum quality | Suggested model (AA variant) | Access / model ID | Invocation | Route here when |")
+    print("| --- | --- | --- | --- | --- | --- | --- |")
     for lane in value["lane_recommendations"]:
         row, access = lane["model"], lane["access"]
-        cells = [lane["component"], lane["role"], row["name"],
-                 f"{access['provider']}: {access['model_id']}", lane["invocation"], lane["route_when"]]
+        cells = [lane["component"], lane["role"], f"P{lane['min_percentile']:g} / AA >= {lane['min_intelligence']:g}",
+                 row["name"] if row else "No qualifying model",
+                 f"{access['provider']}: {access['model_id']}" if access else "—", lane["invocation"], lane["route_when"]]
         print("| " + " | ".join(cell.replace("|", "\\|") for cell in cells) + " |")
     for lane in value["lane_recommendations"]:
         row = lane["model"]
-        metrics = f" | AA {row['intelligence']:g} | ${row['cost_per_task_usd']:.4f}/task"
+        metrics = f" | AA {row['intelligence']:g} | ${row['cost_per_task_usd']:.4f}/task" if row else ""
         print(f"  {lane['component']}: {lane['reason']}{metrics}")
     print("\nPareto frontier (no cheaper equally capable candidate in your selection):")
     for row in value["frontier"]:
         print(f"  {row['name']} | AA {row['intelligence']:g} | ${row['cost_per_task_usd']:.4f}/task")
     print(f"\n{len(value['skipped'])} excluded for missing metrics; {len(value['unmatched'])} catalog entries without an exact AA match.")
-    print("Balance: " + value["balance_method"])
+    print("Selection: " + value["selection_method"])
+    print(f"Quality reference: {value['quality_reference']['population_count']} AA entries; " + value["quality_reference"]["method"])
     for warning in value["warnings"]:
         print("Note: " + warning)
 
@@ -375,7 +402,20 @@ def save_profile(path, providers):
             os.unlink(temporary)
 
 
+def percentile_override(value):
+    try:
+        lane, raw = value.split("=", 1)
+        percentile = float(raw)
+        if lane not in MIN_PERCENTILES or not number(percentile) or percentile > 100:
+            raise ValueError
+        return lane, percentile
+    except ValueError:
+        raise argparse.ArgumentTypeError("Use session|routine|complex|second-opinion=NUMBER, with NUMBER between 0 and 100") from None
+
+
 def add_arguments(parser, default_host="codex"):
+    parser.add_argument("--min-percentile", action="append", type=percentile_override, default=[], metavar="ROLE=0..100",
+                        help="Override the minimum general-intelligence percentile; repeat per role. Defaults: session=75, routine=50, complex=90, second-opinion=90")
     parser.add_argument("--host", choices=("claude", "codex"), default=default_host,
                         help="Current plugin, used only to label execution support; never filters recommendations")
     parser.add_argument("--providers", nargs="+", choices=PROVIDERS, help="Skip the interactive access questions")
@@ -407,7 +447,8 @@ def run(args):
                 print(f"Warning: key not saved. {error}", file=sys.stderr)
     catalog = read_json(args.catalog) if args.catalog else fetch_json(CATALOG_URL)
     entries, warnings = available_models(catalog, providers, read_json(args.available) if args.available else None)
-    value = report(data, entries, warnings, f"local snapshot: {args.data}" if args.data else AA_URL, args.host)
+    minimums = dict(MIN_PERCENTILES, **dict(args.min_percentile))
+    value = report(data, entries, warnings, f"local snapshot: {args.data}" if args.data else AA_URL, args.host, minimums)
     if args.json:
         print(json.dumps(value, indent=2, ensure_ascii=False))
     else:
