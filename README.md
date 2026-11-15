@@ -139,10 +139,33 @@ environment variable securely and supply access explicitly:
 python3 scripts/recommend.py --providers claude codex opencode --json
 ```
 
-If Python on macOS reports a certificate verification failure, use the system CA
-bundle for the command: `SSL_CERT_FILE=/etc/ssl/cert.pem python3 scripts/recommend.py`.
-This keeps HTTPS certificate verification enabled. A python.org installation also
-ships an `Install Certificates.command` in its `/Applications/Python X.Y` folder.
+On macOS, Python automatically uses `/etc/ssl/cert.pem` if its default CA file and
+directory are missing. Existing trust stores and explicit `SSL_CERT_FILE` or
+`SSL_CERT_DIR` settings take priority. HTTPS verification stays enabled.
+
+The report starts with a setup table: component, role, suggested model with the
+exact AA effort variant, catalog model ID, invocation and routing guidance.
+All models from the selected active subscriptions compete for **every role** on
+the same Pareto frontier. Codex only means Codex candidates only; Claude + Codex
+means the union; enabling OpenCode Go adds its candidates too.
+
+| Component | Selection policy on the active subscriptions' frontier |
+| --- | --- |
+| Session | Balanced intelligence/cost |
+| `implementer-routine` | Balanced intelligence/cost |
+| `implementer-complex` | Highest intelligence |
+| `second-opinion` | Highest intelligence |
+
+These are advisor heuristics, not AA task-specific evaluations. Routine uses the
+balanced point rather than the absolute cheapest model. A model may fill several
+roles; review independence requires a separate context. The table is a proposal,
+not saved settings; confirm model/effort support before applying it.
+
+`--host claude` (this entrypoint's default) or `--host codex` labels which current
+plugin routes can execute a suggestion. It never changes the ranking. If the
+winning provider has no route for that role, the table marks manual use instead
+of replacing it with a lower-ranked model. For example, OpenCode Go can win any
+role even though the plugin has no OpenCode execution lane yet.
 
 Every run fetches all pages of the [AA v2 free model endpoint](https://artificialanalysis.ai/api/v2/openapi)
 and the current [models.dev catalog](https://models.dev/). `opencode` means the
@@ -162,7 +185,7 @@ execution come from the catalog, not from AA slugs.
 The filtered Pareto frontier maximizes the **AA Intelligence Index** and minimizes
 **AA cost per Intelligence Index task**. A candidate is excluded only when another
 is at least as capable and no more expensive, with one strict improvement. Ties
-remain. Suggestions show the cheapest frontier point, the highest score, and a
+remain. The JSON also retains the global cheapest frontier point, highest score, and a
 balanced point minimizing equal-weight squared distance to the ideal after
 normalizing both axes to the frontier's ranges. This balance is our heuristic,
 not an AA ranking. The same model may fill several roles in a small frontier.

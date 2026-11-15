@@ -93,8 +93,9 @@ or API acceptance. Failures are reported instead of substituting another model.
 Choose **Suggest models (Artificial Analysis)** in `configure`, run
 `python3 "$ADVISOR_RUNNER" recommend`, or ask for `$arch-advisor:recommend-models`.
 The terminal asks **Claude ✓/✗, Codex ✓/✗, OpenCode Go ✓/✗**, then fetches live AA
-data and suggests economical, balanced and most-capable models on the filtered
-intelligence/cost-per-task Pareto frontier. No inference is used and no lane or
+data and prints a table for the session, routine implementation, complex
+implementation and independent review, with model/AA effort, invocation and
+routing guidance. No inference is used and no lane or
 session model is changed. Recommendations are independent of pending menu edits.
 
 This optional feature needs a free [AA API key](https://artificialanalysis.ai/api-key-management-redirect).
@@ -105,9 +106,19 @@ prompt; it is never saved. Noninteractive usage:
 python3 "$ADVISOR_RUNNER" recommend --providers claude codex opencode --json
 ```
 
-For a Python certificate verification failure on macOS, prefix the command with
-`SSL_CERT_FILE=/etc/ssl/cert.pem` to use the system CA bundle while keeping HTTPS
-verification enabled. The error identifies whether AA or the model catalog failed.
+On macOS, the helper automatically loads `/etc/ssl/cert.pem` when Python has no
+default CA file or directory. Existing certificates and explicit `SSL_CERT_FILE`
+or `SSL_CERT_DIR` settings take priority; HTTPS verification remains enabled.
+
+All active subscriptions compete for every role on the same Pareto frontier:
+Codex only uses Codex candidates; Claude + Codex uses both; OpenCode Go joins when
+selected. Session/routine choose a balanced intelligence/cost point;
+complex/review choose the highest intelligence. These are advisor heuristics,
+not AA endorsements. Models may repeat; review must use a separate context.
+`--host codex` (default) or `--host claude` only labels current execution support;
+it never filters rankings. A winning provider without a native route is marked
+for manual use, including OpenCode Go. JSON retains the global recommendations and adds
+`lane_recommendations`; suggestions are not applied automatically.
 
 Only interactive access choices are saved, in
 `$XDG_CONFIG_HOME/arch-advisor/recommendations.json` (default `~/.config/arch-advisor/recommendations.json`).

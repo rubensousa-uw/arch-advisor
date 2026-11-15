@@ -50,6 +50,66 @@ def dataset():
 
 
 class RecommendationTests(unittest.TestCase):
+    def test_macos_ca_fallback_preserves_explicit_and_existing_trust(self):
+        paths = ssl.get_default_verify_paths()._replace(cafile=None, capath=None)
+        for platform, env, cafile, capath, exists, fallback in [
+            ("darwin", {}, None, None, True, True),
+            ("darwin", {}, None, None, False, False),
+            ("linux", {}, None, None, True, False),
+            ("darwin", {"SSL_CERT_FILE": "custom.pem"}, None, None, True, False),
+            ("darwin", {"SSL_CERT_DIR": "custom"}, None, None, True, False),
+            ("darwin", {}, "installed.pem", None, True, False),
+            ("darwin", {}, None, "installed", True, False),
+        ]:
+            with self.subTest(platform=platform, env=env, cafile=cafile, capath=capath, exists=exists), \
+                 patch.object(sys, "platform", platform), patch.dict(os.environ, env, clear=True), \
+                 patch.object(ssl, "get_default_verify_paths", return_value=paths._replace(cafile=cafile, capath=capath)), \
+                 patch.object(ssl, "create_default_context") as create, patch.object(Path, "is_file", return_value=exists):
+                self.assertIs(recommend.https_context(), create.return_value)
+                self.assertEqual(create.return_value.load_verify_locations.called, fallback)
+                if fallback:
+                    create.return_value.load_verify_locations.assert_called_once_with(cafile="/etc/ssl/cert.pem")
+        context = recommend.https_context()
+        self.assertTrue(context.check_hostname)
+        self.assertEqual(context.verify_mode, ssl.CERT_REQUIRED)
+
+    def test_every_active_subscription_competes_for_every_lane(self):
+        data = dataset()
+        data["data"][3]["name"] = "gpt-smart (High)"
+        for providers in [["codex"], ["claude"], ["opencode"], ["claude", "codex"],
+                          ["codex", "opencode"], ["claude", "opencode"], ["claude", "codex", "opencode"]]:
+            entries, warnings = recommend.available_models(catalog(), providers)
+            results = [recommend.report(data, entries, warnings, "fixture", host) for host in ["claude", "codex"]]
+            self.assertEqual([r["model"] for r in results[0]["lane_recommendations"]],
+                             [r["model"] for r in results[1]["lane_recommendations"]])
+            for result in results:
+                for lane in result["lane_recommendations"]:
+                    self.assertIn(lane["access"]["provider"], providers)
+                    self.assertIn(lane["model"], result["frontier"])
+                    self.assertEqual(lane["model"], result["recommendations"][lane["policy"]])
+            if providers == ["claude", "codex"]:
+                lanes = results[0]["lane_recommendations"]
+                self.assertEqual(lanes[1]["model"]["slug"], "gpt-smart")
+                self.assertEqual(lanes[1]["benchmark_effort"], "high")
+                self.assertEqual(lanes[2]["access"]["provider"], "claude")
+                self.assertFalse(lanes[2]["route_supported"])
+                with contextlib.redirect_stdout(io.StringIO()) as output:
+                    recommend.print_report(results[0])
+                for label in ["| Component |", "implementer-routine", "implementer-complex", "second-opinion", "gpt-smart (High)"]:
+                    self.assertIn(label, output.getvalue())
+
+    def test_opencode_can_win_all_lanes_without_a_native_route(self):
+        entries, warnings = recommend.available_models(catalog(), ["claude", "codex", "opencode"])
+        data = dataset()
+        data["data"][5] = model("deepseek-new", 100, 0)
+        for host in ["claude", "codex"]:
+            result = recommend.report(data, entries, warnings, "fixture", host)
+            for lane in result["lane_recommendations"]:
+                self.assertEqual(lane["model"]["slug"], "deepseek-new")
+                self.assertEqual(lane["access"]["provider"], "opencode")
+                self.assertFalse(lane["route_supported"])
+                self.assertIn("manually", lane["invocation"])
+
     def test_frontier_filters_access_before_dominance(self):
         entries, warnings = recommend.available_models(catalog(), ["codex"])
         result = recommend.report(dataset(), entries, warnings, "fixture")
@@ -188,6 +248,8 @@ class RecommendationTests(unittest.TestCase):
                                         capture_output=True, text=True, env=env)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 value = json.loads(result.stdout)
+                self.assertEqual(value["host"], "claude" if command[1] == str(ROOT / "scripts/recommend.py") else "codex")
+                self.assertEqual(len(value["lane_recommendations"]), 4)
                 self.assertEqual(value["recommendations"]["most_capable"]["slug"], "gpt-smart")
                 self.assertIn("local snapshot", value["data_source"])
                 self.assertIn("Artificial Analysis", value["source"])

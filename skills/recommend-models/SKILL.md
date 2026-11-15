@@ -16,8 +16,14 @@ the choices. In chat/headless tools pass them explicitly:
 python3 <helper> --providers claude codex --json
 ```
 
-Use only the returned frontier and its economical, balanced and most-capable
-suggestions. Retain exact model names including effort, AA IDs, source/date and
+Present the returned `lane_recommendations` as a table: component, role, model
+with AA effort, provider/model ID, invocation and routing guidance. All active
+subscriptions compete for EVERY role on the same filtered Pareto frontier. Never
+restrict a role to a fixed provider. Session/routine use the balanced point;
+complex/review use the highest intelligence. These policies are advisor heuristics.
+The `--host` option only labels current plugin route support; it never filters
+rankings. Preserve manual/unsupported route labels rather than claiming an agent
+can execute them. The helper also returns the frontier and global suggestions. Retain exact model names including effort, AA IDs, source/date and
 access routes. Explain that balance is a normalized equal-weight heuristic,
 not an AA endorsement. Attribute data to https://artificialanalysis.ai/.
 

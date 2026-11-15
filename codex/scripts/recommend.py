@@ -12,7 +12,7 @@ import ssl
 import sys
 import tempfile
 from urllib.error import HTTPError, URLError
-from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.request import HTTPRedirectHandler, HTTPSHandler, Request, build_opener
 
 AA_URL = "https://artificialanalysis.ai/api/v2/language/models/free"
 CATALOG_URL = "https://models.dev/api.json"
@@ -30,13 +30,24 @@ class NoRedirect(HTTPRedirectHandler):
         return None
 
 
+def https_context():
+    context = ssl.create_default_context()
+    paths = ssl.get_default_verify_paths()
+    # python.org macOS installs can lack their optional CA bundle.
+    if (sys.platform == "darwin" and not paths.cafile and not paths.capath
+            and "SSL_CERT_FILE" not in os.environ and "SSL_CERT_DIR" not in os.environ
+            and Path("/etc/ssl/cert.pem").is_file()):
+        context.load_verify_locations(cafile="/etc/ssl/cert.pem")
+    return context
+
+
 def fetch_json(url, key=None):
     source = "Artificial Analysis" if url.split("?", 1)[0] == AA_URL else "Model catalog"
     headers = {"Accept": "application/json", "User-Agent": "arch-advisor-recommend/1"}
     if key:
         headers["x-api-key"] = key
     try:
-        with build_opener(NoRedirect).open(Request(url, headers=headers), timeout=30) as response:
+        with build_opener(NoRedirect, HTTPSHandler(context=https_context())).open(Request(url, headers=headers), timeout=30) as response:
             body = response.read(32 * 1024 * 1024 + 1)
         if len(body) > 32 * 1024 * 1024:
             raise RecommendationError("API response is too large")
@@ -205,11 +216,7 @@ def pareto(rows):
         for other in rows)), key=lambda r: (r["cost_per_task_usd"], -r["intelligence"], r["id"]))
 
 
-def report(data, entries, warnings, source):
-    rows, skipped, unmatched = candidates(data["data"], entries)
-    frontier = pareto(rows)
-    if not frontier:
-        raise RecommendationError("No matched models have both intelligence and cost per task. Check access IDs and AA coverage.")
+def choices(frontier):
     low, high = frontier[0], max(frontier, key=lambda r: (r["intelligence"], -r["cost_per_task_usd"]))
     cost_range = high["cost_per_task_usd"] - low["cost_per_task_usd"]
     score_range = high["intelligence"] - low["intelligence"]
@@ -217,23 +224,76 @@ def report(data, entries, warnings, source):
         return ((row["cost_per_task_usd"] - low["cost_per_task_usd"]) / (cost_range or 1)) ** 2 + (
             (high["intelligence"] - row["intelligence"]) / (score_range or 1)) ** 2
     balanced = min(frontier, key=lambda r: (distance(r), r["cost_per_task_usd"], r["id"]))
+    return {"economical": low, "balanced": balanced, "most_capable": high}
+
+
+def lane_recommendations(frontier, host):
+    selected_models = choices(frontier)
+    specs = [
+        ("session", "Session", "Architecture and coordination", [host], "balanced",
+         "/model", "Architecture, planning and coordination"),
+        ("routine", "implementer-routine", "Routine implementation", ["codex"], "balanced",
+         "implementer-routine agent" if host == "claude" else "advisor.py run routine",
+         "The spec determines the outcome; mechanical edits and ordinary features"),
+        ("complex", "implementer-complex", "Complex implementation", ["codex"], "most_capable",
+         "implementer-complex agent" if host == "claude" else "advisor.py run complex",
+         "Subtle concurrency, hard debugging, security-sensitive paths and wide refactors"),
+        ("second-opinion", "second-opinion", "Independent read-only advice and final review",
+         ["codex"] if host == "claude" else ["claude", "codex"], "most_capable",
+         "second-opinion agent" if host == "claude" else "advisor.py opinion",
+         "Commitment boundaries and always once at the end, in a separate context"),
+    ]
+    result = []
+    for lane, component, role, providers, policy, invocation, route_when in specs:
+        selected = selected_models[policy]
+        # Route support describes execution; it must never filter the ranking.
+        access = next((a for a in selected["access"] if a["provider"] in providers), selected["access"][0])
+        supported = access["provider"] in providers
+        effort = re.search(r"\((low|medium|high|xhigh|max)(?:, [^()]*)?\)$", selected["name"], re.I)
+        result.append({"lane": lane, "component": component, "role": role,
+                       "policy": policy, "route_supported": supported,
+                       "invocation": invocation if supported else access["provider"] + " manually; plugin route unavailable",
+                       "route_when": route_when, "model": selected, "access": access,
+                       "benchmark_effort": effort.group(1).lower() if effort else None,
+                       "reason": "Balanced intelligence/cost on the active subscriptions' frontier" if policy == "balanced" else
+                                 "Highest intelligence on the active subscriptions' frontier"})
+    return result
+
+
+def report(data, entries, warnings, source, host="codex"):
+    rows, skipped, unmatched = candidates(data["data"], entries)
+    frontier = pareto(rows)
+    if not frontier:
+        raise RecommendationError("No matched models have both intelligence and cost per task. Check access IDs and AA coverage.")
     return {"source": SOURCE, "data_source": source, "retrieved_at": datetime.now(timezone.utc).isoformat(),
             "intelligence_index_version": data["intelligence_index_version"],
             "axes": {"maximize": "intelligence", "minimize": "cost_per_task_usd"},
             "cost_basis": "AA benchmark API cost per task; NOT subscription price, quota or Go allowance consumption",
             "balance_method": "Equal-weight normalized distance to ideal intelligence/cost within the filtered frontier",
-            "recommendations": {"economical": low, "balanced": balanced, "most_capable": high},
+            "recommendations": choices(frontier), "host": host,
+            "lane_recommendations": lane_recommendations(frontier, host),
             "frontier": frontier, "candidate_count": len(rows), "skipped": skipped, "unmatched": unmatched,
             "warnings": warnings + ["General Intelligence Index, not a coding-only ranking. Benchmark effort variants are shown; CLI support is not verified.",
-                                      "Public catalogs do not prove subscription entitlement, remaining quota, region or privacy eligibility."]}
+                                      "Public catalogs do not prove subscription entitlement, remaining quota, region or privacy eligibility.",
+                                      "Lane policies are advisor heuristics, not AA endorsements. Review independence requires a separate context; models may repeat.",
+                                      "All active subscriptions compete for every role. Unsupported plugin routes are marked for manual use, not excluded from ranking."]}
 
 
 def print_report(value):
     print(f"\n{SOURCE}\nIndex v{value['intelligence_index_version']} | {value['data_source']} | {value['retrieved_at']}")
     print(value["cost_basis"])
-    for label, row in value["recommendations"].items():
-        access = ", ".join(f"{a['provider']}: {a['model_id']}" for a in row["access"])
-        print(f"\n{label}: {row['name']}\n  AA {row['intelligence']:g} | ${row['cost_per_task_usd']:.4f}/task | {access}")
+    print(f"\nSuggested setup for the {value['host'].title()} plugin (not applied):")
+    print("| Component | Role | Suggested model (AA variant) | Access / model ID | Invocation | Route here when |")
+    print("| --- | --- | --- | --- | --- | --- |")
+    for lane in value["lane_recommendations"]:
+        row, access = lane["model"], lane["access"]
+        cells = [lane["component"], lane["role"], row["name"],
+                 f"{access['provider']}: {access['model_id']}", lane["invocation"], lane["route_when"]]
+        print("| " + " | ".join(cell.replace("|", "\\|") for cell in cells) + " |")
+    for lane in value["lane_recommendations"]:
+        row = lane["model"]
+        metrics = f" | AA {row['intelligence']:g} | ${row['cost_per_task_usd']:.4f}/task"
+        print(f"  {lane['component']}: {lane['reason']}{metrics}")
     print("\nPareto frontier (no cheaper equally capable candidate in your selection):")
     for row in value["frontier"]:
         print(f"  {row['name']} | AA {row['intelligence']:g} | ${row['cost_per_task_usd']:.4f}/task")
@@ -282,7 +342,9 @@ def save_profile(path, providers):
             os.unlink(temporary)
 
 
-def add_arguments(parser):
+def add_arguments(parser, default_host="codex"):
+    parser.add_argument("--host", choices=("claude", "codex"), default=default_host,
+                        help="Current plugin, used only to label execution support; never filters recommendations")
     parser.add_argument("--providers", nargs="+", choices=PROVIDERS, help="Skip the interactive access questions")
     parser.add_argument("--available", type=Path, help="JSON map of selected providers to account-confirmed catalog model IDs")
     parser.add_argument("--data", type=Path, help="Complete single-page AA JSON snapshot instead of the live API")
@@ -311,7 +373,7 @@ def run(args):
         data = load_aa(key)
     catalog = read_json(args.catalog) if args.catalog else fetch_json(CATALOG_URL)
     entries, warnings = available_models(catalog, providers, read_json(args.available) if args.available else None)
-    value = report(data, entries, warnings, f"local snapshot: {args.data}" if args.data else AA_URL)
+    value = report(data, entries, warnings, f"local snapshot: {args.data}" if args.data else AA_URL, args.host)
     if args.json:
         print(json.dumps(value, indent=2, ensure_ascii=False))
     else:
@@ -321,9 +383,9 @@ def run(args):
     return 0
 
 
-def main(argv=None):
+def main(argv=None, default_host="codex"):
     parser = argparse.ArgumentParser(description=__doc__)
-    add_arguments(parser)
+    add_arguments(parser, default_host)
     args = parser.parse_args(argv)
     try:
         return run(args)
