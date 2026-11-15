@@ -1,0 +1,231 @@
+"""Synthetic AA v2 / models.dev contracts; no credentials or inference calls."""
+import contextlib
+import importlib.util
+import io
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+from unittest.mock import patch
+from urllib.error import HTTPError, URLError
+
+ROOT = Path(__file__).resolve().parents[1]
+SCRIPT = ROOT / "codex/scripts/recommend.py"
+spec = importlib.util.spec_from_file_location("recommend", SCRIPT)
+recommend = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(recommend)
+
+
+def model(slug, score, cost, name=None):
+    return {"id": "uuid-" + slug, "slug": slug, "name": name or slug,
+            "evaluations": {"artificial_analysis_intelligence_index": score,
+                            "artificial_analysis_coding_index": None},
+            "artificial_analysis_intelligence_index_cost": {"cost_per_task": {"total_cost": cost}}}
+
+
+def page(rows, current=1, total=1, version=5):
+    return {"tier": "free", "intelligence_index_version": version,
+            "pagination": {"page": current, "page_size": 200, "total_pages": total, "has_more": current < total},
+            "data": rows}
+
+
+def catalog():
+    def provider(ids):
+        return {"models": {i: {"id": i, "name": i, "tool_call": True,
+                              "modalities": {"output": ["text"]}} for i in ids}}
+    return {"anthropic": provider(["claude-small", "claude-large"]),
+            "openai": provider(["gpt-fast", "gpt-smart", "gpt-old", "gpt-no-cost"]),
+            "opencode-go": provider(["deepseek-new", "unknown-free"])}
+
+
+def dataset():
+    return page([model("claude-small", 20, 1), model("claude-large", 55, 9),
+                 model("gpt-fast", 30, 2), model("gpt-smart", 50, 4), model("gpt-old", 25, 3),
+                 model("deepseek-new", 40, 1), model("gpt-no-cost", 99, None)])
+
+
+class RecommendationTests(unittest.TestCase):
+    def test_frontier_filters_access_before_dominance(self):
+        entries, warnings = recommend.available_models(catalog(), ["codex"])
+        result = recommend.report(dataset(), entries, warnings, "fixture")
+        self.assertEqual([r["slug"] for r in result["frontier"]], ["gpt-fast", "gpt-smart"])
+        self.assertEqual(result["recommendations"]["most_capable"]["slug"], "gpt-smart")
+        self.assertEqual(len(result["skipped"]), 1)
+        entries, warnings = recommend.available_models(catalog(), ["claude", "codex", "opencode"])
+        result = recommend.report(dataset(), entries, warnings, "fixture")
+        self.assertEqual([r["slug"] for r in result["frontier"]], ["deepseek-new", "gpt-smart", "claude-large"])
+        self.assertEqual(result["recommendations"]["balanced"]["slug"], "gpt-smart")
+        self.assertEqual(result["unmatched"], [{"provider": "opencode", "model_id": "unknown-free"}])
+
+    def test_pareto_strict_dominance_ties_and_zero(self):
+        rows = [{"id": i, "intelligence": s, "cost_per_task_usd": c}
+                for i, s, c in [("a", 0, 0), ("b", 1, 0), ("c", 1, 0), ("d", 1, 1), ("e", 2, 2)]]
+        self.assertEqual([r["id"] for r in recommend.pareto(rows)], ["b", "c", "e"])
+
+    def test_single_candidate_has_all_three_labels(self):
+        entries, warnings = recommend.available_models(catalog(), ["codex"], {"codex": ["gpt-smart"]})
+        result = recommend.report(dataset(), entries, warnings, "fixture")
+        self.assertEqual({r["slug"] for r in result["recommendations"].values()}, {"gpt-smart"})
+
+    def test_missing_nan_negative_and_boolean_metrics_are_not_zero(self):
+        entries, _ = recommend.available_models(catalog(), ["codex"])
+        for bad in [None, float("nan"), float("inf"), -1, True, "1"]:
+            with self.subTest(bad=bad):
+                for row in [model("gpt-fast", bad, 1), model("gpt-fast", 1, bad)]:
+                    candidates, skipped, _ = recommend.candidates([row], entries)
+                    self.assertEqual(candidates, [])
+                    self.assertEqual(len(skipped), 1)
+
+    def test_unknown_metrics_and_catalog_do_not_fall_back_to_rankings(self):
+        entries, _ = recommend.available_models(catalog(), ["opencode"])
+        with self.assertRaises(recommend.RecommendationError):
+            recommend.report(dataset(), [], [], "fixture")
+        for bad in [None, [], {"openai": {"models": []}}]:
+            with self.assertRaises(recommend.RecommendationError):
+                recommend.available_models(bad, ["codex"])
+
+    def test_exact_release_and_effort_mapping_preserves_variants(self):
+        cat = {"openai": {"models": {"gpt-6.1-sol": {"name": "GPT-6.1 Sol", "tool_call": True,
+               "modalities": {"output": ["text"]}}}}}
+        entries, _ = recommend.available_models(cat, ["codex"])
+        rows = [model("gpt-6-1-sol", 50, 3, "GPT-6.1 Sol (Max)"),
+                model("gpt-6-1-sol-high", 40, 1, "GPT-6.1 Sol (High)"),
+                model("gpt-6-1-sol-preview", 80, 0.1, "GPT-6.1 Sol Preview")]
+        candidates, _, _ = recommend.candidates(rows, entries)
+        self.assertEqual([r["slug"] for r in candidates], ["gpt-6-1-sol", "gpt-6-1-sol-high"])
+        self.assertEqual(candidates[0]["access"][0]["model_id"], "gpt-6.1-sol")
+
+    def test_slug_match_prevents_old_identically_named_release(self):
+        entries = [{"provider": "opencode", "model_id": "qwen3.8-max", "keys": {"qwen38max"}}]
+        rows = [model("qwen3-8-max", 50, 2, "Qwen3.8 Max (0902)"),
+                model("qwen3-8-max-0803", 60, 1, "Qwen3.8 Max")]
+        candidates, _, _ = recommend.candidates(rows, entries)
+        self.assertEqual([r["slug"] for r in candidates], ["qwen3-8-max"])
+
+    def test_free_preview_contributor_not_guessed_without_canonical_identity(self):
+        entries = [{"provider": "opencode", "model_id": "beam-free", "keys": {"beamfree"}}]
+        self.assertEqual(recommend.candidates([model("beam-1-0", 10, 1, "Beam 1.0")], entries)[0], [])
+
+    def test_shared_model_keeps_both_access_routes(self):
+        cat = catalog()
+        cat["opencode-go"]["models"]["claude-small"] = cat["anthropic"]["models"]["claude-small"]
+        entries, _ = recommend.available_models(cat, ["claude", "opencode"])
+        rows, _, _ = recommend.candidates([model("claude-small", 20, 1)], entries)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual([a["provider"] for a in rows[0]["access"]], ["claude", "opencode"])
+
+    def test_available_allowlist_is_strict(self):
+        for bad in [[], {"unknown": []}, {"codex": "gpt-smart"}, {"codex": ["typo"]}, {}]:
+            with self.assertRaises(recommend.RecommendationError):
+                recommend.available_models(catalog(), ["codex"], bad)
+
+    def test_pagination_all_pages_and_key_header_boundary(self):
+        with patch.object(recommend, "fetch_json", side_effect=[page(dataset()["data"][:2], 1, 2), page(dataset()["data"][2:], 2, 2)]) as get:
+            result = recommend.load_aa("test-secret")
+        self.assertEqual(len(result["data"]), len(dataset()["data"]))
+        self.assertEqual([c.args for c in get.call_args_list], [(recommend.AA_URL + "?page=1", "test-secret"), (recommend.AA_URL + "?page=2", "test-secret")])
+        self.assertNotIn("test-secret", json.dumps(result))
+
+    def test_inconsistent_pagination_versions_and_duplicate_ids_fail(self):
+        first = page([model("x", 1, 1)], 1, 2)
+        for second in [page([model("y", 2, 2)], 2, 2, version=6),
+                       page([model("x", 1, 1)], 2, 2), page([], 1, 2), page([], 2, 3)]:
+            with patch.object(recommend, "fetch_json", side_effect=[first, second]):
+                with self.assertRaises(recommend.RecommendationError):
+                    recommend.load_aa("secret")
+
+    def test_http_and_connection_failures_do_not_leak_credentials_or_body(self):
+        for error in [HTTPError("https://example.test", code, "secret", {}, None) for code in [401, 403, 429, 500]] + [URLError("secret")]:
+            with patch.object(recommend, "build_opener") as opener:
+                opener.return_value.open.side_effect = error
+                with self.assertRaises(recommend.RecommendationError) as raised:
+                    recommend.fetch_json(recommend.AA_URL, "secret")
+            self.assertNotIn("secret", str(raised.exception))
+        self.assertIsNone(recommend.NoRedirect().redirect_request(None, None, 302, "", {}, "https://elsewhere.test"))
+
+    def test_read_only_end_to_end_all_entrypoints_and_portable_package(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            data, cat, access = base / "aa.json", base / "catalog.json", base / "access.json"
+            data.write_text(json.dumps(dataset()))
+            cat.write_text(json.dumps(catalog()))
+            access.write_text(json.dumps({"codex": ["gpt-smart", "gpt-fast"]}))
+            env = dict(os.environ, CODEX_HOME=str(base / "home"), XDG_CONFIG_HOME=str(base / "config"))
+            env.pop("ARTIFICIAL_ANALYSIS_API_KEY", None)
+            portable = base / "copied-codex"
+            shutil.copytree(ROOT / "codex", portable)
+            before = {p: p.read_bytes() for p in base.rglob("*.json")}
+            commands = [[sys.executable, str(SCRIPT)], [sys.executable, str(ROOT / "scripts/recommend.py")],
+                        [sys.executable, str(ROOT / "codex/scripts/advisor.py"), "recommend"],
+                        [sys.executable, str(portable / "scripts/advisor.py"), "recommend"]]
+            for command in commands:
+                result = subprocess.run(command + ["--providers", "codex", "--data", str(data), "--catalog", str(cat), "--available", str(access), "--json"],
+                                        capture_output=True, text=True, env=env)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                value = json.loads(result.stdout)
+                self.assertEqual(value["recommendations"]["most_capable"]["slug"], "gpt-smart")
+                self.assertIn("local snapshot", value["data_source"])
+                self.assertIn("Artificial Analysis", value["source"])
+            self.assertEqual(before, {p: p.read_bytes() for p in base.rglob("*.json")})
+            self.assertFalse((base / "home").exists())
+            self.assertFalse((base / "config").exists())
+
+    def test_interactive_questionnaire_remembers_choices_and_cancels(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "profile.json"
+            with patch("builtins.input", side_effect=["", "n", "s"]), contextlib.redirect_stdout(io.StringIO()):
+                providers = recommend.ask_providers(target)
+            self.assertEqual(providers, ["claude", "opencode"])
+            recommend.save_profile(target, providers)
+            before = target.read_bytes()
+            with patch("builtins.input", side_effect=["n", "q"]), contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaises(KeyboardInterrupt):
+                    recommend.ask_providers(target)
+            self.assertEqual(target.read_bytes(), before)
+            self.assertEqual(json.loads(before), {"providers": ["claude", "opencode"]})
+
+    def test_missing_key_and_noninteractive_questionnaire_fail_without_network(self):
+        with patch.dict(os.environ, {"ARTIFICIAL_ANALYSIS_API_KEY": ""}), patch.object(recommend, "fetch_json") as get:
+            with contextlib.redirect_stderr(io.StringIO()) as errors:
+                self.assertEqual(recommend.main(["--providers", "claude"]), 4)
+                self.assertEqual(recommend.main([]), 4)
+            self.assertIn("ARTIFICIAL_ANALYSIS_API_KEY", errors.getvalue())
+            get.assert_not_called()
+
+    def test_interactive_full_run_saves_only_access_not_hidden_key(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "access.json"
+            with (patch.dict(os.environ, {"ARTIFICIAL_ANALYSIS_API_KEY": ""}),
+                  patch.object(sys.stdin, "isatty", return_value=True),
+                  patch.object(sys.stdout, "isatty", return_value=True),
+                  patch("builtins.input", side_effect=["s", "s", "n"]),
+                  patch.object(recommend.getpass, "getpass", return_value="private-aa-key"),
+                  patch.object(recommend, "fetch_json", side_effect=[dataset(), catalog()]) as fetch,
+                  contextlib.redirect_stdout(io.StringIO()) as output):
+                # redirect_stdout replaces the TTY; patch it inside this context.
+                with patch.object(sys.stdout, "isatty", return_value=True):
+                    self.assertEqual(recommend.main(["--profile", str(target)]), 0)
+            self.assertEqual(json.loads(target.read_text()), {"providers": ["claude", "codex"]})
+            self.assertNotIn("private-aa-key", target.read_text() + output.getvalue())
+            self.assertEqual(fetch.call_args_list[0].args, (recommend.AA_URL + "?page=1", "private-aa-key"))
+            self.assertEqual(fetch.call_args_list[1].args, (recommend.CATALOG_URL,))
+
+    def test_snapshot_rejects_partial_data_duplicate_ids_and_terminal_controls(self):
+        for data in [page([model("x", 1, 1), model("x", 2, 2)]),
+                     page([model("x", 1, 1, "bad\x1bname")]), {"data": []}]:
+            with self.assertRaises(recommend.RecommendationError):
+                recommend.validate_page(data, 1)
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "partial.json"
+            target.write_text(json.dumps(page([model("x", 1, 1)], 1, 2)))
+            with patch.object(recommend, "fetch_json") as fetch, contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(recommend.main(["--providers", "codex", "--data", str(target)]), 4)
+            fetch.assert_not_called()
+
+
+if __name__ == "__main__":
+    unittest.main()

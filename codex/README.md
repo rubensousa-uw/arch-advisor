@@ -1,4 +1,4 @@
-# Arch Advisor for Codex — 1.0.0
+# Arch Advisor for Codex — 1.1.0
 
 The Codex session coordinates architecture, specifications, verification and
 acceptance. Choose its model and effort in Codex itself. The packaged workflow
@@ -49,11 +49,11 @@ Claude scripts or settings.
 
 ## Configure directly, without a model
 
-Use the `installedPath` returned at installation. For version 1.0.0 and the
+Use the `installedPath` returned at installation. For version 1.1.0 and the
 default Codex home:
 
 ```sh
-ADVISOR_RUNNER="$HOME/.codex/plugins/cache/arch-advisor-codex/arch-advisor/1.0.0/scripts/advisor.py"
+ADVISOR_RUNNER="$HOME/.codex/plugins/cache/arch-advisor-codex/arch-advisor/1.1.0/scripts/advisor.py"
 python3 "$ADVISOR_RUNNER" configure
 ```
 
@@ -87,6 +87,45 @@ python3 "$ADVISOR_RUNNER" set second-opinion --provider codex --model gpt-6-astr
 Omitted fields keep their saved values. Neither menu nor `set` changes the Codex
 session model or effort. Choosing a model/effort does not prove account access
 or API acceptance. Failures are reported instead of substituting another model.
+
+## Automatic suggestions from Artificial Analysis
+
+Choose **Suggest models (Artificial Analysis)** in `configure`, run
+`python3 "$ADVISOR_RUNNER" recommend`, or ask for `$arch-advisor:recommend-models`.
+The terminal asks **Claude ✓/✗, Codex ✓/✗, OpenCode Go ✓/✗**, then fetches live AA
+data and suggests economical, balanced and most-capable models on the filtered
+intelligence/cost-per-task Pareto frontier. No inference is used and no lane or
+session model is changed. Recommendations are independent of pending menu edits.
+
+This optional feature needs a free [AA API key](https://artificialanalysis.ai/api-key-management-redirect).
+Set `ARTIFICIAL_ANALYSIS_API_KEY` securely, or enter it at the hidden terminal
+prompt; it is never saved. Noninteractive usage:
+
+```sh
+python3 "$ADVISOR_RUNNER" recommend --providers claude codex opencode --json
+```
+
+Only interactive access choices are saved, in
+`$XDG_CONFIG_HOME/arch-advisor/recommendations.json` (default `~/.config/arch-advisor/recommendations.json`).
+The helper uses the AA v2 `/language/models/free` endpoint and models.dev's
+`anthropic`, `openai`, and `opencode-go` catalogs. Catalog membership does not prove
+subscription entitlement. Restrict to confirmed model IDs with `--available file.json`,
+for example `{"claude":["claude-haiku-5-5"],"codex":["gpt-6-luna"]}` for those
+two selected services. OpenCode means Go here, not arbitrary connected providers.
+
+AA costs are **benchmark API costs, not your bill or Go allowance usage**. The
+score is the general Intelligence Index, not a coding-only score. Missing scores
+or costs are excluded; unmatched model IDs are reported, not guessed. Exact
+effort variants are retained, but CLI support, account access, quotas, regions
+and privacy eligibility still need confirmation. Balanced means equal-weight
+normalized distance to the ideal cost/score, not an AA endorsement. Suggestions
+may coincide. AA attribution, date, index version and limitations accompany output.
+
+`--data complete-aa.json --catalog models.json` runs without network or a key and
+labels the result as a snapshot. AA data must be a complete v2 single-page
+envelope; its read timestamp does not establish freshness. API failures never
+fall back to remembered rankings. All recommendation files are inside this
+package; the Claude package calls the same implementation through a thin entrypoint.
 
 ## Preferences and overrides
 

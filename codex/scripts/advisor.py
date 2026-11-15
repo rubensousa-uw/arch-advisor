@@ -202,7 +202,11 @@ def configure():
     config, _ = load_user()
     print(f"User settings: {user_path()}\nProject overrides are not edited. No model calls are made.")
     while True:
-        action = picker("Configure", ["Routine", "Complex", "Second opinion", "Save and exit", "Cancel"], "Routine")
+        action = picker("Configure", ["Routine", "Complex", "Second opinion", "Save and exit", "Cancel", "Suggest models (Artificial Analysis)"], "Routine")
+        if action == "Suggest models (Artificial Analysis)":
+            import recommend
+            recommend.main([])
+            continue
         if action == "Cancel":
             print("Cancelled; no settings saved.")
             return
@@ -393,12 +397,14 @@ def invocation(args, config, name, workspace, probe=False):
 
 
 def main():
+    import recommend
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="action", required=True)
     display = sub.add_parser("show", help="Show effective settings without model calls")
     display.add_argument("--cd", default=os.getcwd())
     display.add_argument("--json", action="store_true")
     sub.add_parser("configure", help="Open local selection lists; no model calls")
+    recommend.add_arguments(sub.add_parser("recommend", help="Suggest models from the live AA Pareto frontier; no inference"))
     change = sub.add_parser("set", help="Save exact user preferences without model calls")
     change.add_argument("lane", choices=LANES)
     change.add_argument("--provider", choices=("codex", "claude"))
@@ -417,6 +423,8 @@ def main():
             child.add_argument("--provider", choices=("codex", "claude"))
     args = parser.parse_args()
     try:
+        if args.action == "recommend":
+            return recommend.run(args)
         if args.action == "configure":
             configure()
             return 0
@@ -438,13 +446,13 @@ def main():
             return 0 if all(code == 0 for code in codes) else 1
         name = "second-opinion" if args.action == "opinion" else args.lane
         return invocation(args, config, name, workspace)
-    except ConfigError as error:
+    except (ConfigError, recommend.RecommendationError) as error:
         print(f"ARCH ADVISOR REPORT\nSTATUS: configuration-error\nEXIT_CODE: 4\nREASON: {error}", file=sys.stderr)
         return 4
     except OSError as error:
         print(f"arch-advisor: {error}", file=sys.stderr)
         return 3
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, EOFError):
         print("\nCancelled; no pending settings saved.", file=sys.stderr)
         return 130
 
