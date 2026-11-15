@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -146,6 +147,26 @@ class RecommendationTests(unittest.TestCase):
                     recommend.fetch_json(recommend.AA_URL, "secret")
             self.assertNotIn("secret", str(raised.exception))
         self.assertIsNone(recommend.NoRedirect().redirect_request(None, None, 302, "", {}, "https://elsewhere.test"))
+
+    def test_fetch_diagnoses_source_and_failure_without_leaking_details(self):
+        for error, message in [
+            (URLError(ssl.SSLCertVerificationError(1, "secret")), "certificate verification failed"),
+            (ssl.SSLCertVerificationError(1, "secret"), "certificate verification failed"),
+            (URLError(TimeoutError("secret")), "request timed out"),
+            (TimeoutError("secret"), "request timed out"),
+            (URLError("secret"), "connection failed"),
+        ]:
+            with self.subTest(error=type(error).__name__, message=message), patch.object(recommend, "build_opener") as opener:
+                opener.return_value.open.side_effect = error
+                with self.assertRaises(recommend.RecommendationError) as raised:
+                    recommend.fetch_json(recommend.AA_URL + "?page=1", "secret")
+                self.assertTrue(str(raised.exception).startswith("Artificial Analysis: "))
+                self.assertIn(message, str(raised.exception))
+                self.assertNotIn("secret", str(raised.exception))
+        with patch.object(recommend, "build_opener") as opener:
+            opener.return_value.open.return_value.__enter__.return_value.read.return_value = b"not JSON secret"
+            with self.assertRaisesRegex(recommend.RecommendationError, "^Model catalog: response is not valid JSON$"):
+                recommend.fetch_json(recommend.CATALOG_URL)
 
     def test_read_only_end_to_end_all_entrypoints_and_portable_package(self):
         with tempfile.TemporaryDirectory() as directory:

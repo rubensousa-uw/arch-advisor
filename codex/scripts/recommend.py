@@ -8,6 +8,7 @@ import math
 import os
 from pathlib import Path
 import re
+import ssl
 import sys
 import tempfile
 from urllib.error import HTTPError, URLError
@@ -30,6 +31,7 @@ class NoRedirect(HTTPRedirectHandler):
 
 
 def fetch_json(url, key=None):
+    source = "Artificial Analysis" if url.split("?", 1)[0] == AA_URL else "Model catalog"
     headers = {"Accept": "application/json", "User-Agent": "arch-advisor-recommend/1"}
     if key:
         headers["x-api-key"] = key
@@ -42,9 +44,20 @@ def fetch_json(url, key=None):
     except HTTPError as error:
         reason = {401: "invalid or missing API key", 403: "API access denied",
                   429: "rate limit reached; retry later"}.get(error.code, "request failed")
-        raise RecommendationError(f"HTTP {error.code}: {reason}") from None
-    except (URLError, TimeoutError, OSError, ValueError):
-        raise RecommendationError("Could not read API JSON; check the connection and retry") from None
+        raise RecommendationError(f"{source}: HTTP {error.code}: {reason}") from None
+    except (URLError, OSError) as error:
+        cause = error.reason if isinstance(error, URLError) else error
+        if isinstance(cause, ssl.SSLCertVerificationError):
+            reason = "HTTPS certificate verification failed; configure Python's trusted CA certificates"
+            if sys.platform == "darwin":
+                reason += "; try SSL_CERT_FILE=/etc/ssl/cert.pem when running this command"
+        elif isinstance(cause, TimeoutError):
+            reason = "request timed out; retry later"
+        else:
+            reason = "connection failed; check the network and retry"
+        raise RecommendationError(f"{source}: {reason}") from None
+    except ValueError:
+        raise RecommendationError(f"{source}: response is not valid JSON") from None
 
 
 def read_json(path):

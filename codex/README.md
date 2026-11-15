@@ -105,6 +105,10 @@ prompt; it is never saved. Noninteractive usage:
 python3 "$ADVISOR_RUNNER" recommend --providers claude codex opencode --json
 ```
 
+For a Python certificate verification failure on macOS, prefix the command with
+`SSL_CERT_FILE=/etc/ssl/cert.pem` to use the system CA bundle while keeping HTTPS
+verification enabled. The error identifies whether AA or the model catalog failed.
+
 Only interactive access choices are saved, in
 `$XDG_CONFIG_HOME/arch-advisor/recommendations.json` (default `~/.config/arch-advisor/recommendations.json`).
 The helper uses the AA v2 `/language/models/free` endpoint and models.dev's

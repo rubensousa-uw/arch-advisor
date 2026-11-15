@@ -139,6 +139,11 @@ environment variable securely and supply access explicitly:
 python3 scripts/recommend.py --providers claude codex opencode --json
 ```
 
+If Python on macOS reports a certificate verification failure, use the system CA
+bundle for the command: `SSL_CERT_FILE=/etc/ssl/cert.pem python3 scripts/recommend.py`.
+This keeps HTTPS certificate verification enabled. A python.org installation also
+ships an `Install Certificates.command` in its `/Applications/Python X.Y` folder.
+
 Every run fetches all pages of the [AA v2 free model endpoint](https://artificialanalysis.ai/api/v2/openapi)
 and the current [models.dev catalog](https://models.dev/). `opencode` means the
 `opencode-go` catalog, not OpenCode Zen or every provider usable in OpenCode.
