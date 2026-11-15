@@ -161,6 +161,7 @@ means the union; enabling OpenCode Go adds its candidates too.
 | `implementer-routine` | P50 |
 | `implementer-complex` | P90 |
 | `second-opinion` | P90 |
+| `verifier` (verification/tests) | P75 |
 
 For every role, choose the **cheapest frontier model meeting the quality floor**.
 This adapts the minimum-quality/lowest-price idea from the
@@ -172,6 +173,12 @@ Override them explicitly, for example:
 ```sh
 python3 scripts/recommend.py --min-percentile routine=40 --min-percentile complex=80
 ```
+
+The fifth role, `verification`, runs tests, checks acceptance criteria and looks
+for regressions after implementation, reporting evidence separately from the code
+review. Adjust its floor with `--min-percentile verification=80`. Its model is
+selected by the same Pareto/cost rule across active subscriptions. There is no
+dedicated verifier execution agent yet, so the table marks this route for manual use.
 
 Percentiles use the nearest-rank method across **all AA entries with a valid
 general Intelligence Index**, including effort variants and entries without cost

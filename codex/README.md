@@ -94,7 +94,7 @@ Choose **Suggest models (Artificial Analysis)** in `configure`, run
 `python3 "$ADVISOR_RUNNER" recommend`, or ask for `$arch-advisor:recommend-models`.
 The terminal asks **Claude ✓/✗, Codex ✓/✗, OpenCode Go ✓/✗**, then fetches live AA
 data and prints a table for the session, routine implementation, complex
-implementation and independent review, with model/AA effort, invocation and
+implementation, independent review and verification/tests, with model/AA effort, invocation and
 routing guidance. No inference is used and no lane or
 session model is changed. Recommendations are independent of pending menu edits.
 
@@ -118,10 +118,15 @@ or `SSL_CERT_DIR` settings take priority; HTTPS verification remains enabled.
 All active subscriptions compete for every role on the same Pareto frontier:
 Codex only uses Codex candidates; Claude + Codex uses both; OpenCode Go joins when
 selected. Every role picks the **cheapest frontier model above its quality floor**:
-session P75, routine P50, complex/review P90 by default. This adapts the idea from
+session P75, routine P50, complex/review P90, verification P75 by default. This adapts the idea from
 [OpenRouter Pareto Router](https://openrouter.ai/docs/guides/routing/routers/pareto-router),
 without calling OpenRouter or importing its coding tiers. Override per invocation
 with `--min-percentile routine=40 --min-percentile complex=80` (0–100).
+
+The fifth role, `verifier`, runs tests, validates acceptance criteria and checks
+regressions after implementation. It uses the same active-subscription Pareto
+selection; override with `--min-percentile verification=80`. It is separate from
+read-only review and currently marked for manual use: no dedicated executor is added.
 
 The helper calculates nearest-rank percentiles across all valid general Intelligence
 Index entries in the AA response, including effort variants and entries missing

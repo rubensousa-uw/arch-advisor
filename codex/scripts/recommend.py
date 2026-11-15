@@ -20,7 +20,7 @@ CATALOG_URL = "https://models.dev/api.json"
 PROVIDERS = {"claude": "anthropic", "codex": "openai", "opencode": "opencode-go"}
 SOURCE = "Artificial Analysis — https://artificialanalysis.ai/"
 KEYCHAIN_SERVICE = "arch-advisor.artificial-analysis"
-MIN_PERCENTILES = {"session": 75, "routine": 50, "complex": 90, "second-opinion": 90}
+MIN_PERCENTILES = {"session": 75, "routine": 50, "complex": 90, "second-opinion": 90, "verification": 75}
 
 
 class RecommendationError(Exception):
@@ -293,6 +293,8 @@ def lane_recommendations(frontier, host, thresholds):
          ["codex"] if host == "claude" else ["claude", "codex"],
          "second-opinion agent" if host == "claude" else "advisor.py opinion",
          "Commitment boundaries and always once at the end, in a separate context"),
+        ("verification", "verifier", "Verification and tests", [], "",
+         "After implementation: run tests, validate acceptance criteria and check regressions; report evidence"),
     ]
     result = []
     for lane, component, role, providers, invocation, route_when in specs:
@@ -410,12 +412,12 @@ def percentile_override(value):
             raise ValueError
         return lane, percentile
     except ValueError:
-        raise argparse.ArgumentTypeError("Use session|routine|complex|second-opinion=NUMBER, with NUMBER between 0 and 100") from None
+        raise argparse.ArgumentTypeError("Use " + "|".join(MIN_PERCENTILES) + "=NUMBER, with NUMBER between 0 and 100") from None
 
 
 def add_arguments(parser, default_host="codex"):
     parser.add_argument("--min-percentile", action="append", type=percentile_override, default=[], metavar="ROLE=0..100",
-                        help="Override the minimum general-intelligence percentile; repeat per role. Defaults: session=75, routine=50, complex=90, second-opinion=90")
+                        help="Override the minimum general-intelligence percentile; repeat per role. Defaults: " + ", ".join(f"{role}={value}" for role, value in MIN_PERCENTILES.items()))
     parser.add_argument("--host", choices=("claude", "codex"), default=default_host,
                         help="Current plugin, used only to label execution support; never filters recommendations")
     parser.add_argument("--providers", nargs="+", choices=PROVIDERS, help="Skip the interactive access questions")
