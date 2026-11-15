@@ -263,7 +263,7 @@ def set_preference(args):
 
 def command(provider, model, effort, workspace, sandbox, final):
     if provider == "codex":
-        argv = ["codex", "exec", "--model", model, "--sandbox", sandbox,
+        argv = ["codex", "exec", "--json", "--model", model, "--sandbox", sandbox,
                 "-c", 'approval_policy="never"', "--skip-git-repo-check",
                 "--cd", str(workspace), "--output-last-message", str(final)]
         if effort:
@@ -350,7 +350,17 @@ def invocation(args, config, name, workspace, probe=False):
                           "coordinates verification and review. Do not delegate or invoke advisor "
                           "or implementer lanes recursively. Respect user/project constraints. "
                           "Report the changes and actual verification evidence.\n\nSpecification:\n" + prompt)
-        rc, output, errors, status = execute(argv, workspace, prompt, timeout)
+        import time
+        import adaptive
+        started = time.monotonic()
+        try:
+            rc, output, errors, status = execute(argv, workspace, prompt, timeout)
+        except KeyboardInterrupt:
+            if not probe:
+                adaptive.collect(workspace, "codex", name, provider, model, effort,
+                                 time.monotonic() - started, 130, adaptive.Usage(), args.task_id, args.context)
+            raise
+        duration = time.monotonic() - started
         advice = ""
         reported = []
         if rc == 0:
@@ -377,6 +387,17 @@ def invocation(args, config, name, workspace, probe=False):
                 rc, status = 1, "refused"
         if probe and rc == 0 and advice.strip() != "OK":
             rc, status = 1, "probe-failed"
+        if not probe:
+            measured = adaptive.Usage()
+            if provider == "claude":
+                measured.feed(output, provider)
+            else:
+                for line in output.splitlines():
+                    measured.feed(line, provider)
+            if rc:
+                measured.values = dict.fromkeys(measured.values)
+            adaptive.collect(workspace, "codex", name, provider, model, effort,
+                             duration, rc, measured, args.task_id, args.context)
         print(f"ARCH ADVISOR REPORT\nLANE: {name}\nSTATUS: {status}\nEXIT_CODE: {rc}")
         if reported:
             print(f"MODELS_REPORTED: {', '.join(reported)}")
@@ -398,12 +419,16 @@ def invocation(args, config, name, workspace, probe=False):
 
 def main():
     import recommend
+    if sys.argv[1:2] == ["adaptive"]:
+        import adaptive
+        return adaptive.main(sys.argv[2:])
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="action", required=True)
     display = sub.add_parser("show", help="Show effective settings without model calls")
     display.add_argument("--cd", default=os.getcwd())
     display.add_argument("--json", action="store_true")
     sub.add_parser("configure", help="Open local selection lists; no model calls")
+    sub.add_parser("adaptive", help="Local history, personal Pareto and accept/reject changes (adaptive --help)")
     recommend.add_arguments(sub.add_parser("recommend", help="Suggest models from the live AA Pareto frontier; no inference"))
     change = sub.add_parser("set", help="Save exact user preferences without model calls")
     change.add_argument("lane", choices=LANES)
@@ -419,6 +444,8 @@ def main():
         child.add_argument("--cd", required=True, help="Target workspace, required before override resolution")
         child.add_argument("--effort", choices=("inherit", *EFFORTS))
         child.add_argument("--dry-run", action="store_true")
+        child.add_argument("--task-id", help="Reuse for retries of the same task")
+        child.add_argument("--context", help="Comparable task class, e.g. python-unit-tests")
         if action != "run":
             child.add_argument("--provider", choices=("codex", "claude"))
     args = parser.parse_args()

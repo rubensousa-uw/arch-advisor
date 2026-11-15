@@ -1,7 +1,7 @@
 # arch-advisor
 
-This repository contains two independent packages: **Claude Code 6.4.0** at the
-repository root and **Codex 1.1.0** under [`codex/`](codex/README.md). The Codex
+This repository contains two independent packages: **Claude Code 6.5.0** at the
+repository root and **Codex 1.2.0** under [`codex/`](codex/README.md). The Codex
 variant keeps your selected Codex session model and adds routine/complex lanes
 plus a second opinion from Astra **or Claude**, configured through a local
 terminal menu without inference calls. Each package has its own marketplace and
@@ -27,6 +27,22 @@ Codex models, allowed reasoning efforts and wall-clock caps are resolved at runt
 by `scripts/lane.sh`; explicit task effort overrides saved defaults and is
 validated before a call.
 
+## Personal usage and change suggestions
+
+Execution through the plugin now records numeric usage locally. Outcomes remain
+unknown until verified: exit code 0 is never treated as accepted work. The personal
+Pareto comparison uses actual outcomes and resources for comparable tasks, with
+retries included. It filters your active subscriptions and available models.
+
+No models change by default. Review each suggestion, then accept or reject it;
+accepted native lane changes are project-scoped and can be undone. Optional
+`auto-adjust` requires an explicit warning acknowledgment and only runs when you
+request suggestions. AA remains the benchmark starting point when local evidence
+is insufficient; its percentile settings are not learned from your usage.
+
+See [local collection, evidence policy and commands](codex/ADAPTIVE.md) for all five roles,
+feedback, privacy, manual routes and the limits of subscription quota measurement.
+
 ## Install
 
 ```bash
@@ -49,7 +65,7 @@ claude plugin marketplace update arch-advisor
 claude plugin update arch-advisor@arch-advisor
 ```
 
-Restart Claude Code once to load version 6.4.0 and the native settings. Ubuntu uses
+Restart Claude Code once to load version 6.5.0 and the native settings. Ubuntu uses
 `timeout` from `coreutils`; no Homebrew is needed. If dependencies are missing:
 
 ```bash

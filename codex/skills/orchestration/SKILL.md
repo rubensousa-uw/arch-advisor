@@ -57,3 +57,20 @@ headless execution tool or substitute a conversational questionnaire. Give the
 user the command when they want the menu. Noninteractive `set` is available for
 explicitly requested exact settings; `show` is always read-only. User preferences
 live outside the installed package and survive updates.
+
+
+## Local usage evidence
+
+The CLI runners collect numeric usage and print `ADAPTIVE_TASK_ID`; results remain
+unknown until checked. Give comparable tasks an `ARCH_ADVISOR_TASK_CLASS` and
+reuse `ARCH_ADVISOR_TASK_ID` only for retries/escalations of the same task. Separate
+implementation, review and verification jobs need separate IDs. Clear per-task
+environment variables afterward. With collection disabled, skip this workflow.
+After verifying acceptance criteria, record the outcome through
+`python3 <plugin>/scripts/adaptive.py --cd <workspace> feedback <task-id>
+accepted|rejected|unknown --evidence <short-test-or-review-reference>`.
+Never infer acceptance from exit code 0 or the implementer's report alone. Correct
+feedback when later evidence reveals a regression. For personal Pareto suggestions
+and user-approved changes use `adaptive-models`; do not change models as part of
+recording outcomes. Session and verifier collection requires explicit capture or
+import; no global hooks are installed.

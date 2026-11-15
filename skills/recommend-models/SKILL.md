@@ -54,3 +54,10 @@ Index is not a coding-only score. API failures and absent coverage are limitatio
 not grounds to substitute remembered rankings. Local `--data` snapshots must be
 labelled as snapshots. Applying model choices is a separate user request; never
 put an AA slug directly into execution configuration or change the session model.
+
+
+For recommendations based on the user's measured outcomes and resource use, use
+`adaptive-models`. AA is the cold-start benchmark reference; its role percentiles
+are heuristic policy defaults and are not automatically calibrated from usage.
+Keep local evidence distinct from AA scores and never substitute benchmark prices
+for measured subscription allowance.

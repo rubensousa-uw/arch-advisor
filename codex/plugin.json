@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "arch-advisor",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Codex coordination with configurable routine and complex implementation lanes and a read-only Astra or Claude second opinion.",
   "author": {"name": "Ruben Sousa", "url": "https://github.com/rubensousa-uw"},
   "repository": "https://github.com/rubensousa-uw/arch-advisor",

@@ -1,4 +1,4 @@
-# Arch Advisor for Codex — 1.1.0
+# Arch Advisor for Codex — 1.2.0
 
 The Codex session coordinates architecture, specifications, verification and
 acceptance. Choose its model and effort in Codex itself. The packaged workflow
@@ -18,6 +18,22 @@ are saved separately, so switching to Claude and back preserves each model and
 effort. `opus` is a moving Claude alias; use a full model ID to pin a version.
 An Astra review has a fresh context but belongs to the same model family as the
 coordinator. Claude provides a cross-provider review.
+
+## Personal usage and change suggestions
+
+Execution through the plugin now records numeric usage locally. Outcomes remain
+unknown until verified: exit code 0 is never treated as accepted work. The personal
+Pareto comparison uses actual outcomes and resources for comparable tasks, with
+retries included. It filters your active subscriptions and available models.
+
+No models change by default. Review each suggestion, then accept or reject it;
+accepted native lane changes are project-scoped and can be undone. Optional
+`auto-adjust` requires an explicit warning acknowledgment and only runs when you
+request suggestions. AA remains the benchmark starting point when local evidence
+is insufficient; its percentile settings are not learned from your usage.
+
+See [local collection, evidence policy and commands](ADAPTIVE.md) for all five roles,
+feedback, privacy, manual routes and the limits of subscription quota measurement.
 
 ## Add to Codex
 
@@ -49,11 +65,11 @@ Claude scripts or settings.
 
 ## Configure directly, without a model
 
-Use the `installedPath` returned at installation. For version 1.1.0 and the
+Use the `installedPath` returned at installation. For version 1.2.0 and the
 default Codex home:
 
 ```sh
-ADVISOR_RUNNER="$HOME/.codex/plugins/cache/arch-advisor-codex/arch-advisor/1.1.0/scripts/advisor.py"
+ADVISOR_RUNNER="$HOME/.codex/plugins/cache/arch-advisor-codex/arch-advisor/1.2.0/scripts/advisor.py"
 python3 "$ADVISOR_RUNNER" configure
 ```
 
