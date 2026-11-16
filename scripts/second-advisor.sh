@@ -57,7 +57,7 @@ set -- "$script_dir/run-lane.sh" 2nd-advisor --sandbox read-only --cd "$WORKSPAC
 rc=0
 "$@" < "$scratch/prompt" > "$scratch/log" 2>&1 || rc=$?
 # Logs stay private except for the explicit operational timeout warning.
-sed -n '/^WARN: no timeout binary;/p' "$scratch/log" >&2
+sed -n '/^WARN:/p; /^ADAPTIVE_TASK_ID:/p' "$scratch/log" >&2
 if [ "$rc" -ne 0 ]; then
   status=unavailable
   [ "$rc" -ne 124 ] && [ "$rc" -ne 137 ] || status=timeout

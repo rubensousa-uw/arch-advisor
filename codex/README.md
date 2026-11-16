@@ -1,4 +1,4 @@
-# Arch Advisor for Codex — 1.0.0
+# Arch Advisor for Codex — 1.2.0
 
 The Codex session coordinates architecture, specifications, verification and
 acceptance. Choose its model and effort in Codex itself. The packaged workflow
@@ -18,6 +18,22 @@ are saved separately, so switching to Claude and back preserves each model and
 effort. `opus` is a moving Claude alias; use a full model ID to pin a version.
 An Astra review has a fresh context but belongs to the same model family as the
 coordinator. Claude provides a cross-provider review.
+
+## Personal usage and change suggestions
+
+Execution through the plugin now records numeric usage locally. Outcomes remain
+unknown until verified: exit code 0 is never treated as accepted work. The personal
+Pareto comparison uses actual outcomes and resources for comparable tasks, with
+retries included. It filters your active subscriptions and available models.
+
+No models change by default. Review each suggestion, then accept or reject it;
+accepted native lane changes are project-scoped and can be undone. Optional
+`auto-adjust` requires an explicit warning acknowledgment and only runs when you
+request suggestions. AA remains the benchmark starting point when local evidence
+is insufficient; its percentile settings are not learned from your usage.
+
+See [local collection, evidence policy and commands](ADAPTIVE.md) for all five roles,
+feedback, privacy, manual routes and the limits of subscription quota measurement.
 
 ## Add to Codex
 
@@ -49,11 +65,11 @@ Claude scripts or settings.
 
 ## Configure directly, without a model
 
-Use the `installedPath` returned at installation. For version 1.0.0 and the
+Use the `installedPath` returned at installation. For version 1.2.0 and the
 default Codex home:
 
 ```sh
-ADVISOR_RUNNER="$HOME/.codex/plugins/cache/arch-advisor-codex/arch-advisor/1.0.0/scripts/advisor.py"
+ADVISOR_RUNNER="$HOME/.codex/plugins/cache/arch-advisor-codex/arch-advisor/1.2.0/scripts/advisor.py"
 python3 "$ADVISOR_RUNNER" configure
 ```
 
@@ -87,6 +103,81 @@ python3 "$ADVISOR_RUNNER" set second-opinion --provider codex --model gpt-6-astr
 Omitted fields keep their saved values. Neither menu nor `set` changes the Codex
 session model or effort. Choosing a model/effort does not prove account access
 or API acceptance. Failures are reported instead of substituting another model.
+
+## Automatic suggestions from Artificial Analysis
+
+Choose **Suggest models (Artificial Analysis)** in `configure`, run
+`python3 "$ADVISOR_RUNNER" recommend`, or ask for `$arch-advisor:recommend-models`.
+The terminal asks **Claude ✓/✗, Codex ✓/✗, OpenCode Go ✓/✗**, then fetches live AA
+data and prints a table for the session, routine implementation, complex
+implementation, independent review and verification/tests, with model/AA effort, invocation and
+routing guidance. No inference is used and no lane or
+session model is changed. Recommendations are independent of pending menu edits.
+
+This optional feature needs a free [AA API key](https://artificialanalysis.ai/api-key-management-redirect).
+The helper checks `ARTIFICIAL_ANALYSIS_API_KEY`, then macOS Keychain, and prompts
+invisibly only if neither has a key. On macOS, a prompted key is saved after a
+successful AA fetch and reused by both packages (service
+`arch-advisor.artificial-analysis`, account `api-key`). Keys never enter preferences
+or process arguments. Unlock a locked Keychain; to replace a key, delete that item
+in Keychain Access and rerun, or override with the environment variable. Other
+platforms use the environment variable for reuse. Noninteractive usage:
+
+```sh
+python3 "$ADVISOR_RUNNER" recommend --providers claude codex opencode --json
+```
+
+On macOS, the helper automatically loads `/etc/ssl/cert.pem` when Python has no
+default CA file or directory. Existing certificates and explicit `SSL_CERT_FILE`
+or `SSL_CERT_DIR` settings take priority; HTTPS verification remains enabled.
+
+All active subscriptions compete for every role on the same Pareto frontier:
+Codex only uses Codex candidates; Claude + Codex uses both; OpenCode Go joins when
+selected. Every role picks the **cheapest frontier model above its quality floor**:
+session P75, routine P50, complex/review P90, verification P75 by default. This adapts the idea from
+[OpenRouter Pareto Router](https://openrouter.ai/docs/guides/routing/routers/pareto-router),
+without calling OpenRouter or importing its coding tiers. Override per invocation
+with `--min-percentile routine=40 --min-percentile complex=80` (0–100).
+
+The fifth role, `verifier`, runs tests, validates acceptance criteria and checks
+regressions after implementation. It uses the same active-subscription Pareto
+selection; override with `--min-percentile verification=80`. It is separate from
+read-only review and currently marked for manual use: no dedicated executor is added.
+
+The helper calculates nearest-rank percentiles across all valid general Intelligence
+Index entries in the AA response, including effort variants and entries missing
+costs, before subscription filtering. The output shows both the percentile and raw
+score cutoff. These defaults are advisor policies; the percentiles are not official
+coding ranks or success probabilities. A missing qualifying model leaves a role
+without a suggestion, never an automatic downgrade. Models may repeat; review
+uses a separate context. Threshold overrides are not persisted.
+`--host codex` (default) or `--host claude` only labels current execution support;
+it never filters rankings. A winning provider without a native route is marked
+for manual use, including OpenCode Go. JSON retains the global recommendations and adds
+`lane_recommendations`; suggestions are not applied automatically.
+
+Only interactive access choices are saved, in
+`$XDG_CONFIG_HOME/arch-advisor/recommendations.json` (default `~/.config/arch-advisor/recommendations.json`).
+The helper uses the AA v2 `/language/models/free` endpoint and models.dev's
+`anthropic`, `openai`, and `opencode-go` catalogs. Catalog membership does not prove
+subscription entitlement. Restrict to confirmed model IDs with `--available file.json`,
+for example `{"claude":["claude-haiku-5-5"],"codex":["gpt-6-luna"]}` for those
+two selected services. OpenCode means Go here, not arbitrary connected providers.
+
+AA costs are **benchmark API costs, not your bill or Go allowance usage**. The
+score is the general Intelligence Index, not a coding-only score. Missing scores
+or costs are excluded; unmatched model IDs are reported, not guessed. Exact
+effort variants are retained, but CLI support, account access, quotas, regions
+and privacy eligibility still need confirmation. The global balanced point in JSON
+is a comparison reference only; role selection minimizes cost above a quality floor.
+Cost ties prefer higher intelligence, then AA ID. AA attribution, date, index version
+and limitations accompany output.
+
+`--data complete-aa.json --catalog models.json` runs without network or a key and
+labels the result as a snapshot. AA data must be a complete v2 single-page
+envelope; its read timestamp does not establish freshness. API failures never
+fall back to remembered rankings. All recommendation files are inside this
+package; the Claude package calls the same implementation through a thin entrypoint.
 
 ## Preferences and overrides
 

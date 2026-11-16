@@ -119,3 +119,20 @@ The plugin's optional stop-time review gate (`/codex:setup --enable-review-gate`
 ## Verification
 
 Reports are claims, not evidence. Before accepting any lane's work: read the diff, and re-run the verification command (or spot-check its quoted output against the working tree). "Should work", "tests should pass", or a report with no command output means the task is not done. An empty diff with a clean exit is a refusal, not a success — the lanes report it as `refused`; treat it as one. A lane that reports a spec gap gets a corrected spec, not a "use your judgment".
+
+
+## Local usage evidence
+
+The CLI runners collect numeric usage and print `ADAPTIVE_TASK_ID`; results remain
+unknown until checked. Give comparable tasks an `ARCH_ADVISOR_TASK_CLASS` and
+reuse `ARCH_ADVISOR_TASK_ID` only for retries/escalations of the same task. Separate
+implementation, review and verification jobs need separate IDs. Clear per-task
+environment variables afterward. With collection disabled, skip this workflow.
+After verifying acceptance criteria, record the outcome through
+`python3 <plugin>/scripts/adaptive.py --cd <workspace> feedback <task-id>
+accepted|rejected|unknown --evidence <short-test-or-review-reference>`.
+Never infer acceptance from exit code 0 or the implementer's report alone. Correct
+feedback when later evidence reveals a regression. For personal Pareto suggestions
+and user-approved changes use `adaptive-models`; do not change models as part of
+recording outcomes. Session and verifier collection requires explicit capture or
+import; no global hooks are installed.

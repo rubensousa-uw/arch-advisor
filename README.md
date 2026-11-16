@@ -1,7 +1,7 @@
 # arch-advisor
 
-This repository contains two independent packages: **Claude Code 6.3.0** at the
-repository root and **Codex 1.0.0** under [`codex/`](codex/README.md). The Codex
+This repository contains two independent packages: **Claude Code 6.5.0** at the
+repository root and **Codex 1.2.0** under [`codex/`](codex/README.md). The Codex
 variant keeps your selected Codex session model and adds routine/complex lanes
 plus a second opinion from Astra **or Claude**, configured through a local
 terminal menu without inference calls. Each package has its own marketplace and
@@ -27,6 +27,22 @@ Codex models, allowed reasoning efforts and wall-clock caps are resolved at runt
 by `scripts/lane.sh`; explicit task effort overrides saved defaults and is
 validated before a call.
 
+## Personal usage and change suggestions
+
+Execution through the plugin now records numeric usage locally. Outcomes remain
+unknown until verified: exit code 0 is never treated as accepted work. The personal
+Pareto comparison uses actual outcomes and resources for comparable tasks, with
+retries included. It filters your active subscriptions and available models.
+
+No models change by default. Review each suggestion, then accept or reject it;
+accepted native lane changes are project-scoped and can be undone. Optional
+`auto-adjust` requires an explicit warning acknowledgment and only runs when you
+request suggestions. AA remains the benchmark starting point when local evidence
+is insufficient; its percentile settings are not learned from your usage.
+
+See [local collection, evidence policy and commands](codex/ADAPTIVE.md) for all five roles,
+feedback, privacy, manual routes and the limits of subscription quota measurement.
+
 ## Install
 
 ```bash
@@ -49,7 +65,7 @@ claude plugin marketplace update arch-advisor
 claude plugin update arch-advisor@arch-advisor
 ```
 
-Restart Claude Code once to load version 6.3.0 and the native settings. Ubuntu uses
+Restart Claude Code once to load version 6.5.0 and the native settings. Ubuntu uses
 `timeout` from `coreutils`; no Homebrew is needed. If dependencies are missing:
 
 ```bash
@@ -113,6 +129,132 @@ If you previously used the 6.2.0 Claude reviewer, this version does not use its
 obsolete generated agents; there is no separate Claude reviewer in the workflow.
 
 Native picker reference: [Claude Code user configuration](https://code.claude.com/docs/en/plugins-reference#user-configuration).
+
+## Automatic model suggestions (Artificial Analysis)
+
+Ask for `arch-advisor:recommend-models`, or run the following from this checkout
+(in an installed plugin, use its absolute `scripts/recommend.py` path):
+
+```sh
+python3 scripts/recommend.py
+```
+
+The terminal asks which services you have, with ✓/✗ defaults: **Claude**, **Codex**,
+and **OpenCode Go**. Successful interactive runs remember those choices in
+`$XDG_CONFIG_HOME/arch-advisor/recommendations.json` (default
+`~/.config/arch-advisor/recommendations.json`), shared by the two packages.
+The selected access routes are the only saved settings. Lane and session models
+are never changed, and no inference calls are made.
+
+Create a free [AA API key](https://artificialanalysis.ai/api-key-management-redirect).
+The helper first uses `ARTIFICIAL_ANALYSIS_API_KEY`, then the macOS Keychain.
+It only prompts invisibly if neither has a key. On macOS, a prompted key is saved
+after a successful AA fetch under service `arch-advisor.artificial-analysis`,
+account `api-key`, and reused across both packages and future runs. It is never
+written to preferences or command-line arguments. If the Keychain is locked,
+unlock it; the helper reports the error rather than asking for the key again.
+To replace a saved key, delete that item in Keychain Access and rerun, or override
+it with the environment variable. Other platforms use the environment variable
+for reuse. For scripts or the conversational skill, supply access explicitly:
+
+```sh
+python3 scripts/recommend.py --providers claude codex opencode --json
+```
+
+On macOS, Python automatically uses `/etc/ssl/cert.pem` if its default CA file and
+directory are missing. Existing trust stores and explicit `SSL_CERT_FILE` or
+`SSL_CERT_DIR` settings take priority. HTTPS verification stays enabled.
+
+The report starts with a setup table: component, role, suggested model with the
+exact AA effort variant, catalog model ID, invocation and routing guidance.
+All models from the selected active subscriptions compete for **every role** on
+the same Pareto frontier. Codex only means Codex candidates only; Claude + Codex
+means the union; enabling OpenCode Go adds its candidates too.
+
+| Component | Minimum general-intelligence percentile |
+| --- | --- |
+| Session | P75 |
+| `implementer-routine` | P50 |
+| `implementer-complex` | P90 |
+| `second-opinion` | P90 |
+| `verifier` (verification/tests) | P75 |
+
+For every role, choose the **cheapest frontier model meeting the quality floor**.
+This adapts the minimum-quality/lowest-price idea from the
+[OpenRouter Pareto Router](https://openrouter.ai/docs/guides/routing/routers/pareto-router);
+it does not call OpenRouter or use its curated coding tiers. The defaults above
+are advisor policies, not validated task-specific requirements or AA endorsements.
+Override them explicitly, for example:
+
+```sh
+python3 scripts/recommend.py --min-percentile routine=40 --min-percentile complex=80
+```
+
+The fifth role, `verification`, runs tests, checks acceptance criteria and looks
+for regressions after implementation, reporting evidence separately from the code
+review. Adjust its floor with `--min-percentile verification=80`. Its model is
+selected by the same Pareto/cost rule across active subscriptions. There is no
+dedicated verifier execution agent yet, so the table marks this route for manual use.
+
+Percentiles use the nearest-rank method across **all AA entries with a valid
+general Intelligence Index**, including effort variants and entries without cost
+measurements, before filtering subscriptions. P75 is the score at rank
+`ceil(0.75 * N)` in the sorted population; P0 uses its minimum. Ties share a cutoff.
+These are locally calculated intelligence percentiles, not official AA coding
+percentiles or success probabilities. New benchmark entries can move the cutoff.
+The table shows both the percentile and the raw AA score required. Changing active
+subscriptions changes the candidates, not the quality bar for that AA snapshot.
+
+No qualifying accessible model means **no suggestion for that role**; the helper
+never silently lowers the floor. Role overrides apply to that invocation and are
+not saved. Models may repeat; review independence requires a separate context.
+Suggestions are not applied automatically. Confirm model/effort support before use.
+
+`--host claude` (this entrypoint's default) or `--host codex` labels which current
+plugin routes can execute a suggestion. It never changes the ranking. If the
+winning provider has no route for that role, the table marks manual use instead
+of replacing it with a lower-ranked model. For example, OpenCode Go can win any
+role even though the plugin has no OpenCode execution lane yet.
+
+Every run fetches all pages of the [AA v2 free model endpoint](https://artificialanalysis.ai/api/v2/openapi)
+and the current [models.dev catalog](https://models.dev/). `opencode` means the
+`opencode-go` catalog, not OpenCode Zen or every provider usable in OpenCode.
+Claude/OpenAI catalog membership is **not proof of Claude Code/Codex subscription
+access**. To restrict to account-confirmed catalog IDs, use `--available access.json`:
+
+```json
+{"claude": ["claude-haiku-5-5"], "codex": ["gpt-6-luna"], "opencode": ["deepseek-v4.1-flash"]}
+```
+
+Include a list for every selected provider. Names and punctuation are matched
+conservatively, retaining AA effort variants and using exact release slugs before
+display names. Unknown matches are reported instead of guessed. Model IDs for
+execution come from the catalog, not from AA slugs.
+
+The filtered Pareto frontier maximizes the **AA Intelligence Index** and minimizes
+**AA cost per Intelligence Index task**. A candidate is excluded only when another
+is at least as capable and no more expensive, with one strict improvement. Ties
+remain. For comparison only, JSON also retains the global cheapest frontier point, highest score, and a
+balanced point minimizing equal-weight squared distance to the ideal after
+normalizing both axes to the frontier's ranges. This balance is our heuristic,
+not an AA ranking, and does not select the role suggestions. Selection minimizes
+cost subject to the quality floor; cost ties prefer higher intelligence, then AA ID.
+
+Costs are **API benchmark reference costs**, not subscription charges, remaining
+quotas or OpenCode Go allowance consumption. The Intelligence Index is general,
+not coding-only; the deprecated Coding/Agentic indexes are not used. Missing or
+invalid intelligence/cost data is excluded. Authentication, rate-limit, malformed
+data and pagination failures stop the comparison rather than use old rankings.
+The output includes AA attribution, index version, retrieval time, exclusions
+and unverified access/region/privacy caveats. No scraped leaderboard or historic
+price list is bundled.
+
+For reproducible offline analysis, `--data complete-aa.json --catalog models.json`
+accepts snapshots and labels the report accordingly. The AA JSON must use the
+v2 envelope with all models in one page (`page: 1`, `total_pages: 1`,
+`has_more: false`). `retrieved_at` is the time the helper read the data, not proof
+of snapshot freshness. The Codex package also exposes `advisor.py recommend`
+and **Suggest models (Artificial Analysis)** in its existing `configure` menu.
 
 ## Advanced lane configuration
 

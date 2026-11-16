@@ -45,7 +45,7 @@ if [ -n "$EFFORT" ]; then
 fi
 case "$LANE_TIMEOUT" in ""|*[!0-9]*) die "Lane timeout must be a positive integer" 3 ;; esac
 [ "$LANE_TIMEOUT" -gt 0 ] || die "Lane timeout must be positive" 3
-set -- codex exec --model "$LANE_MODEL" --sandbox "$SANDBOX" \
+set -- codex exec --json --model "$LANE_MODEL" --sandbox "$SANDBOX" \
   -c 'approval_policy="never"' --skip-git-repo-check --cd "$WORKSPACE"
 [ -z "$FINAL" ] || set -- "$@" --output-last-message "$FINAL"
 [ -z "$EFFORT" ] || set -- "$@" -c "model_reasoning_effort=$EFFORT"
@@ -63,4 +63,7 @@ if [ "$DRY" = 1 ]; then
 fi
 command -v codex >/dev/null 2>&1 || die "codex not found on PATH" 3
 # Preserve every Codex/timeout exit status, including 124 for timeouts.
-exec "$@"
+[ -z "$EFFORT" ] || set -- --effort "$EFFORT" -- "$@"
+[ -n "$EFFORT" ] || set -- -- "$@"
+exec python3 "$script_dir/adaptive.py" --cd "$WORKSPACE" capture \
+  --role "$LANE" --provider codex --model "$LANE_MODEL" "$@"

@@ -41,6 +41,7 @@ if mode != 'empty':
         timer.write_text('#!/bin/sh\nshift\nexec "$@"\n')
         timer.chmod(0o755)
         self.env = os.environ.copy()
+        self.env["ARCH_ADVISOR_STATE_DIR"] = str(self.base / "adaptive-state")
         self.env.update(
             PATH=str(self.bin) + os.pathsep + self.env.get("PATH", ""),
             ARCH_ADVISOR_CONFIG=str(self.config),

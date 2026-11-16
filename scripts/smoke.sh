@@ -4,6 +4,7 @@
 # not test implementation edits, review verdicts or every allowed effort.
 # Usage: smoke.sh [LANE] [--cd DIR] [--effort RUNG] [--dry-run]
 set -eu
+export ARCH_ADVISOR_TELEMETRY=0
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 DRY=0; EFFORT=""; ONLY=""; WORKSPACE="$PWD"
 while [ "$#" -gt 0 ]; do

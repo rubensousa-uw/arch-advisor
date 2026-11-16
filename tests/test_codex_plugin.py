@@ -53,6 +53,7 @@ sys.exit(int(os.environ.get('MOCK_EXIT', '0')))
             path.write_text(mock)
             path.chmod(0o755)
         self.env = os.environ.copy()
+        self.env["ARCH_ADVISOR_STATE_DIR"] = str(self.base / "adaptive-state")
         self.env.pop("ARCH_ADVISOR_CODEX_CONFIG", None)
         self.env.update(CODEX_HOME=str(self.base / "profile"),
                         PATH=str(self.bin) + os.pathsep + self.env.get("PATH", ""),

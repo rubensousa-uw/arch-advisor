@@ -23,6 +23,7 @@ class NativeConfigTests(unittest.TestCase):
         self.user_lane = self.user / 'arch-advisor/lanes.json'
         self.data = json.loads((ROOT / 'config/lanes.json').read_text())
         self.env = os.environ.copy()
+        self.env["ARCH_ADVISOR_STATE_DIR"] = str(self.base / "adaptive-state")
         self.env.pop('ARCH_ADVISOR_CONFIG', None)
         self.env['CLAUDE_CONFIG_DIR'] = str(self.user)
         self.bin = self.base / 'bin'
