@@ -47,3 +47,5 @@ the review, preserve that status/reason and tell the architect the review is
 incomplete. An unchanged diff is expected for advice and is never a refusal.
 Never supply your own substitute verdict when Codex is unavailable. The Claude session
 checks your findings against the evidence and owns all fixes.
+
+Include the exact `ADAPTIVE_TASK_ID` from the runner in the report to the coordinator so it can record the independently checked outcome.

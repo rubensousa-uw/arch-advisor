@@ -151,3 +151,5 @@ GAPS: [spec ambiguities, unfinished items, or "none"]
 - If the task turns out to be architectural — the spec itself is wrong — stop and report; that decision belongs upstream (consult `second-opinion`).
 - Add a `JUDGMENT CALLS:` line to the report — decisions codex made that the spec left open, taken from its final message and checked against the diff — or "none".
 - You are a one-off lane. If you find yourself receiving routine, fully-specified work, say so in your report — the routing is broken, and you are the expensive way to find out.
+
+Include the exact `ADAPTIVE_TASK_ID` from the runner in the report to the coordinator so it can record the independently checked outcome.

@@ -39,3 +39,5 @@ Report unavailable, timeout, refused or provider-error results as such. No
 substitute opinion from the coordinating session counts as this review. An
 unchanged workspace is the expected outcome. Smoke tests only establish a
 minimal capability probe, never review quality or implementation correctness.
+
+Include the exact `ADAPTIVE_TASK_ID` from the runner in the report to the coordinator so it can record the independently checked outcome.

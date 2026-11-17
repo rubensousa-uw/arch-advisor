@@ -1,6 +1,6 @@
 {
   "name": "arch-advisor",
-  "version": "1.2.0",
+  "version": "1.2.3",
   "description": "Codex coordination with configurable routine and complex implementation lanes and a read-only Astra or Claude second opinion.",
   "author": {"name": "Ruben Sousa", "url": "https://github.com/rubensousa-uw"},
   "repository": "https://github.com/rubensousa-uw/arch-advisor",

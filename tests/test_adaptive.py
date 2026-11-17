@@ -153,6 +153,78 @@ class AdaptiveTests(unittest.TestCase):
         self.assertEqual(report['personal_frontier'], [self.new])
         self.assertEqual(len(report['suggestions']), 1)
 
+    def test_verified_feedback_automatically_compares_without_applying(self):
+        self.seed()
+        last = self.record(self.new, duration_seconds=20)
+        self.run_cli('auto-adjust', 'enable', '--acknowledge')
+        args = ['--cd', str(self.work), 'feedback', last['task_id'], 'accepted', '--evidence', 'review:42']
+        output = io.StringIO()
+        with patch.object(adaptive, 'availability', return_value=(self.allowed, [])), contextlib.redirect_stdout(output):
+            self.assertEqual(adaptive.main(args), 0)
+        performance = json.loads(output.getvalue())['performance']
+        self.assertTrue(performance['ready_to_compare'])
+        self.assertEqual(performance['suggestions'][0]['to'], self.new)
+        self.assertEqual(performance['recommendation']['action'], 'recommend_change')
+        self.assertEqual(adaptive.current(self.work, 'codex', 'routine'), self.baseline)
+
+    def test_both_hosts_report_first_verified_task_offline(self):
+        for host in ('claude', 'codex'):
+            row = adaptive.record(self.work, host, dict(role='second-opinion', provider='codex',
+                model='reviewer', effort='high', duration_seconds=12, exit_code=0))
+            result = self.run_cli('feedback', row['task_id'], 'accepted', '--evidence', 'review:1', host=host)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            performance = json.loads(result.stdout)['performance']
+            self.assertFalse(performance['ready_to_compare'])
+            self.assertEqual(performance['options'][0]['resource_per_accepted_task'], 12)
+            self.assertEqual(performance['options'][0]['tasks'], 1)
+            self.assertEqual(performance['trend']['status'], 'collecting')
+            self.assertEqual(performance['trend']['recent']['accepted'], 1)
+
+    def test_single_model_trend_detects_quality_and_time_changes_in_its_own_task_class(self):
+        for _ in range(10):
+            self.record(outcome='accepted', duration_seconds=5)
+        for _ in range(10):
+            last = self.record(outcome='rejected', duration_seconds=15)
+        self.record(duration_seconds=1)
+        self.record(self.new, outcome='accepted', duration_seconds=1)
+        self.record(outcome='accepted', duration_seconds=1, context='different')
+        result = self.run_cli('feedback', last['task_id'], 'rejected', '--evidence', 'test:20')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        summary = json.loads(result.stdout)['performance']
+        self.assertFalse(summary['ready_to_compare'])
+        self.assertEqual(summary['recommendation']['action'], 'evaluate_alternative')
+        self.assertNotIn('to', summary['recommendation'])
+        trend = summary['trend']
+        self.assertEqual((trend['assessed'], trend['unassessed']), (20, 1))
+        self.assertEqual((trend['acceptance'], trend['time']), ('lower', 'slower'))
+        self.assertEqual((trend['previous']['accepted'], trend['recent']['accepted']), (10, 0))
+        self.assertEqual((trend['previous']['mean_seconds'], trend['recent']['mean_seconds']), (5, 15))
+
+    def test_declining_quality_recommends_change_for_recorded_manual_roles_on_both_hosts(self):
+        for host in ('claude', 'codex'):
+            self.args.host = host
+            for role in ('session', 'verification'):
+                with self.subTest(host=host, role=role):
+                    for _ in range(10):
+                        self.record(outcome='accepted', role=role)
+                        self.record(self.new, outcome='accepted', role=role)
+                    for _ in range(10):
+                        last = self.record(outcome='rejected', role=role)
+                    args = ['--cd', str(self.work), '--host', host, 'feedback', last['task_id'],
+                            'rejected', '--evidence', 'test:category']
+                    output = io.StringIO()
+                    with patch.object(adaptive, 'availability', return_value=(self.allowed, [])), contextlib.redirect_stdout(output):
+                        self.assertEqual(adaptive.main(args), 0)
+                    report = json.loads(output.getvalue())['performance']
+                    advice = report['recommendation']
+                    self.assertEqual((advice['action'], advice['role'], advice['context']),
+                                     ('recommend_change', role, 'general'))
+                    self.assertEqual((advice['from'], advice['to']), (self.baseline, self.new))
+                    self.assertEqual((advice['window'], advice['reason']),
+                                     ('latest_assessed_per_option', 'higher_acceptance'))
+                    self.assertEqual(report['suggestions'][0]['baseline']['tasks'], 10)
+                    self.assertFalse(report['suggestions'][0]['route_supported'])
+
     def test_single_observation_does_not_hide_supported_suggestion(self):
         self.seed()
         original, = self.propose()['suggestions']

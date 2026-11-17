@@ -150,3 +150,5 @@ GAPS: [spec ambiguities, unfinished items, or "none"]
 - If codex's changes are wrong, report that plainly with the failing output — do not patch them yourself. Fix decisions belong to the caller.
 - If the task turns out to be architectural — the spec itself is wrong — stop and report; that decision belongs upstream (consult `second-opinion`).
 - If the task turns out to need judgment the spec can't carry — it fails twice on a corrected spec, or the diff keeps missing the point — say so in `GAPS`: that is the architect's signal to escalate to `implementer-complex`, and it is their call, not yours.
+
+Include the exact `ADAPTIVE_TASK_ID` from the runner in the report to the coordinator so it can record the independently checked outcome.

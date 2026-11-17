@@ -1,4 +1,4 @@
-# Arch Advisor for Codex — 1.2.0
+# Arch Advisor for Codex — 1.2.3
 
 The Codex session coordinates architecture, specifications, verification and
 acceptance. Choose its model and effort in Codex itself. The packaged workflow
@@ -65,11 +65,11 @@ Claude scripts or settings.
 
 ## Configure directly, without a model
 
-Use the `installedPath` returned at installation. For version 1.2.0 and the
+Use the `installedPath` returned at installation. For version 1.2.3 and the
 default Codex home:
 
 ```sh
-ADVISOR_RUNNER="$HOME/.codex/plugins/cache/arch-advisor-codex/arch-advisor/1.2.0/scripts/advisor.py"
+ADVISOR_RUNNER="$HOME/.codex/plugins/cache/arch-advisor-codex/arch-advisor/1.2.3/scripts/advisor.py"
 python3 "$ADVISOR_RUNNER" configure
 ```
 

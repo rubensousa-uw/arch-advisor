@@ -308,6 +308,77 @@ def personal_frontier(options):
         for other in options)]
 
 
+def performance_trend(observations, task):
+    comparable = [row for row in observations if row["option"] == task["option"]
+                  and row["role"] == task["role"] and row["context"] == task["context"]]
+    assessed = sorted((row for row in comparable if row["outcome"] != "unknown"),
+                      key=lambda row: (row["last_attempt_at"], row["task_id"]))
+    recent = assessed[-10:]
+    previous = assessed[-20:-10]
+    trend = {"option": task["option"], "assessed": len(assessed),
+             "unassessed": len(comparable) - len(assessed), "status": "collecting"}
+    for label, rows in (("recent", recent), ("previous", previous)):
+        if rows:
+            trend[label] = {"tasks": len(rows), "accepted": sum(row["outcome"] == "accepted" for row in rows),
+                            "mean_seconds": mean(row["duration_seconds"] for row in rows),
+                            "retries": sum(row["attempts"] - 1 for row in rows)}
+    if len(previous) < 10:
+        return trend
+
+    z = NormalDist().inv_cdf(.975)
+    old_lo, old_hi = wilson(trend["previous"]["accepted"], len(previous), z)
+    new_lo, new_hi = wilson(trend["recent"]["accepted"], len(recent), z)
+    old_times = [row["duration_seconds"] for row in previous]
+    new_times = [row["duration_seconds"] for row in recent]
+    low, high = saving_interval(old_times, new_times, .95, digest([old_times, new_times]))
+    trend.update(status="compared",
+                 acceptance="lower" if new_hi < old_lo else "higher" if new_lo > old_hi else "inconclusive",
+                 time="slower" if high < 0 else "faster" if low > 0 else "inconclusive")
+    return trend
+
+
+def feedback_summary(workspace, host, task_id, parser):
+    with connect() as db:
+        observations, _ = tasks(db, scope_id(workspace, host), 30)
+    task = next((o for o in observations if o["task_id"] == task_id), None)
+    if task is None:
+        return {"status": "outside-30-day-window"}
+    groups, eligible, unknown = analyze(observations, task["role"], task["context"],
+                                        "duration_seconds", None, 10, .95)
+    fields = ("option", "tasks", "accepted", "attempts", "mean_resource", "resource_per_accepted_task")
+    summary = {"role": task["role"], "context": task["context"], "window_days": 30,
+            "metric": "duration_seconds", "unknown_outcomes": unknown,
+            "options": [{k: g[k] for k in fields} for g in groups],
+            "ready_to_compare": len(eligible) >= 2, "trend": performance_trend(observations, task)}
+    decision = {"role": task["role"], "context": task["context"], "from": task["option"], "action": "collect"}
+    summary["recommendation"] = decision
+    if summary["trend"].get("acceptance") == "lower" or summary["trend"].get("time") == "slower":
+        decision["action"] = "evaluate_alternative"
+    if summary["ready_to_compare"]:
+        args = parser.parse_args(["--cd", str(workspace), "--host", host, "suggest",
+                                  "--role", task["role"], "--context", task["context"], "--report-only"])
+        try:
+            comparison = propose(args, feedback_task=task)
+            summary["suggestions"] = comparison["suggestions"]
+            decision["from"] = comparison["current"]
+            decision["window"] = comparison["comparison_window"]
+            if comparison["comparison_window"] == "latest_assessed_per_option":
+                decision["action"] = "evaluate_alternative"
+            elif comparison["can_compare"]:
+                decision["action"] = "keep"
+            else:
+                decision["action"] = "collect"
+            pending = [p for p in summary["suggestions"] if p["status"] == "pending"]
+            if pending:
+                best = max(pending, key=lambda p: (p["quality_difference_lower_bound"], p["saving_interval"][0]))
+                decision.update(action="recommend_change", to=best["to"], reason=best["reason"],
+                                proposal_id=best["id"])
+        except (AdaptiveError, OSError, ValueError, sqlite3.Error, subprocess.SubprocessError):
+            summary["comparison_status"] = "unavailable"
+            decision["action"] = "comparison_unavailable"
+    return summary
+
+
 def saving_interval(baseline, candidate, confidence, seed):
     rng = random.Random(seed)
     values = sorted(mean(rng.choices(baseline, k=len(baseline))) - mean(rng.choices(candidate, k=len(candidate)))
@@ -363,12 +434,16 @@ def supported(host, role, choice):
         choice["provider"] == "codex" or host == "codex" and role == "second-opinion" and choice["provider"] == "claude")
 
 
-def propose(args):
+def propose(args, *, feedback_task=None):
     allowed, warnings = availability(args)
     scope = scope_id(args.cd, args.host)
     with connect() as db:
         observations, revision = tasks(db, scope, args.days)
         baseline_choice = current(args.cd, args.host, args.role)
+        if baseline_choice is None and feedback_task is not None:
+            latest = max((o for o in observations if o["role"] == args.role and o["context"] == args.context),
+                         key=lambda o: (o["last_attempt_at"], o["task_id"]), default=feedback_task)
+            baseline_choice = latest["option"]
         if getattr(args, "current", None):
             if baseline_choice is not None:
                 raise AdaptiveError("--current is only for roles without a configurable lane")
@@ -378,6 +453,16 @@ def propose(args):
                 raise AdaptiveError("--current must contain provider, model and effort")
             valid_text(baseline_choice["model"], "current model")
         observations = [o for o in observations if (o["option"]["provider"], o["option"]["model"]) in allowed or o["option"] == baseline_choice]
+        comparison_window = "all_assessed_in_window"
+        if feedback_task is not None:
+            trend = performance_trend(observations, dict(feedback_task, option=baseline_choice))
+            if trend.get("acceptance") == "lower" or trend.get("time") == "slower":
+                recent = defaultdict(list)
+                for row in sorted(observations, key=lambda o: (o["last_attempt_at"], o["task_id"])):
+                    if row["role"] == args.role and row["context"] == args.context and row["outcome"] != "unknown":
+                        recent[json.dumps(row["option"], sort_keys=True)].append(row)
+                observations = [row for rows in recent.values() for row in rows[-args.min_samples:]]
+                comparison_window = "latest_assessed_per_option"
         groups, eligible, unknown = analyze(observations, args.role, args.context, args.metric, args.quota_key, args.min_samples, args.confidence)
         observed = [g for g in groups if g["mean_resource"] is not None]
         baseline = next((g for g in eligible if g["option"] == baseline_choice), None)
@@ -390,12 +475,15 @@ def propose(args):
             interval = saving_interval(baseline["samples"], candidate["samples"],
                                        1 - (1 - args.confidence) / len(eligible),
                                        digest([baseline["samples"], candidate["samples"]]))
-            if quality_bound < -args.quality_margin or interval[0] <= 0:
+            faster = interval[0] > 0 and quality_bound >= -args.quality_margin
+            better_quality = feedback_task is not None and quality_bound > 0 and interval[0] >= 0
+            if not (faster or better_quality):
                 continue
             proposal_id = digest([scope, args.role, args.context, args.metric, args.quota_key, baseline_choice, choice])[:20]
             value = {"id": proposal_id, "host": args.host, "role": args.role, "context": args.context,
                      "from": baseline_choice, "to": choice, "revision": revision, "days": args.days,
                      "metric": args.metric, "quota_key": args.quota_key, "quality_margin": args.quality_margin,
+                     "reason": "resource_saving" if faster else "higher_acceptance", "comparison_window": comparison_window,
                      "confidence": args.confidence, "quality_difference_lower_bound": quality_bound,
                      "saving_interval": interval, "baseline": {k: v for k, v in baseline.items() if k != "samples"},
                      "candidate": {k: v for k, v in candidate.items() if k != "samples"},
@@ -412,6 +500,7 @@ def propose(args):
               "min_samples": args.min_samples, "window_days": args.days,
               "quality_margin": args.quality_margin, "confidence": args.confidence,
               "current": baseline_choice, "unknown_outcomes": unknown,
+              "comparison_window": comparison_window, "can_compare": baseline is not None and len(eligible) >= 2,
               "options": [{k: v for k, v in g.items() if k != "samples"} for g in groups],
               "personal_frontier": [g["option"] for g in personal_frontier(observed)], "suggestions": suggestions,
               "auto_adjust": auto, "warnings": warnings + [
@@ -420,7 +509,7 @@ def propose(args):
                   "Missing outcomes/metrics stay unknown. Retried tasks are attributed to their initial option, including all attempt resources."]}
     if baseline_choice is None:
         result["warnings"].append("No configurable current lane: supply --current JSON to compare a manually selected model. Acceptance records manual advice only.")
-    if auto:
+    if auto and not getattr(args, "report_only", False):
         print("WARNING: AUTO-ADJUST ENABLED for this project; qualifying supported changes may be applied now.", file=sys.stderr)
         # One change per analysis; never chain promotions from an old baseline.
         pending = [p for p in suggestions if p["status"] == "pending" and p["route_supported"]]
@@ -572,6 +661,7 @@ def main(argv=None, default_host="codex"):
     suggestion = sub.add_parser("suggest", help="Personal frontier and evidence-backed change proposals")
     suggestion.add_argument("--role", choices=ROLES, required=True)
     suggestion.add_argument("--context", default="general")
+    suggestion.add_argument("--report-only", action="store_true", help="Report suggestions without applying model changes")
     suggestion.add_argument("--current", type=Path, help="JSON provider/model/effort for a manually selected session or verifier")
     suggestion.add_argument("--metric", choices=METRICS, default="duration_seconds")
     suggestion.add_argument("--quota-key")
@@ -602,6 +692,7 @@ def main(argv=None, default_host="codex"):
         elif args.action == "feedback":
             feedback(args.cd, args.host, args.task_id, args.outcome, args.evidence)
             value = {"task_id": args.task_id, "outcome": args.outcome}
+            value["performance"] = feedback_summary(args.cd, args.host, args.task_id, parser)
         elif args.action in ("history", "suggest"):
             if not 1 <= args.days <= 3650:
                 raise AdaptiveError("days must be between 1 and 3650")

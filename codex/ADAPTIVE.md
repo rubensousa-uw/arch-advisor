@@ -44,6 +44,12 @@ review or user decision; raw logs, prompts, responses and code are refused.
 An orchestrator can record verified results; do not use the producer's own claim
 or CLI exit code as the outcome. Revise feedback if a regression is discovered.
 
+The orchestration coordinator records feedback after checking the result. Each feedback command returns a 30-day summary for that task class. Once two options have ten assessed tasks each, all five roles can produce advice for the specific task class using the saved subscriptions. For session and verification the reference is the latest observed choice in that class. A catalog failure leaves the feedback saved. This comparison never applies a model change.
+
+For the selected provider, model and effort, feedback reports verified acceptances, retries, and mean duration from the first assessed task. Within the same role, class, project and host it compares the ten latest assessed tasks by last attempt time with the ten immediately before them, all within 30 days. Unknown outcomes are counted separately. Directional signals use non-overlapping 95% Wilson intervals for acceptance and a bootstrap interval for elapsed time. These rolling observations can reflect a changing mix of tasks. Review the counts even when a difference is inconclusive. Monitoring uses just the chosen model.
+
+Feedback includes a category recommendation. A detected decline in the reference model’s acceptance or speed triggers a comparison of the latest ten assessed tasks per option in this class. Otherwise it uses up to 30 days of assessed work. An alternative qualifies under the existing time-saving policy or when its acceptance is demonstrably higher and the lower bound on time saved is at least zero. Among qualifying pending proposals, the strongest acceptance lower bound wins, with the savings lower bound breaking ties. If only the reference model has enough data and it declines, the advice is to evaluate an alternative; no untried model is reported as a proven upgrade. Applying a supported proposal manually changes the project’s lane default across task classes.
+
 ## Suggest, accept, reject, undo
 
 ```sh

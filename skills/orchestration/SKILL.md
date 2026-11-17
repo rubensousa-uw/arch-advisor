@@ -128,11 +128,11 @@ unknown until checked. Give comparable tasks an `ARCH_ADVISOR_TASK_CLASS` and
 reuse `ARCH_ADVISOR_TASK_ID` only for retries/escalations of the same task. Separate
 implementation, review and verification jobs need separate IDs. Clear per-task
 environment variables afterward. With collection disabled, skip this workflow.
-After verifying acceptance criteria, record the outcome through
+Before reporting completion, the coordinator records each checked implementation and review automatically. A review is accepted when independently checked findings or its verdict hold up; an implementation test alone does not verify the review. Leave an unverified outcome unknown. Run
 `python3 <plugin>/scripts/adaptive.py --cd <workspace> feedback <task-id>
 accepted|rejected|unknown --evidence <short-test-or-review-reference>`.
 Never infer acceptance from exit code 0 or the implementer's report alone. Correct
-feedback when later evidence reveals a regression. For personal Pareto suggestions
+feedback when later evidence reveals a regression. The feedback command returns the updated 30-day performance summary. Check the selected model’s `trend` even when there is only one model. Surface a change in verified acceptance or duration with both counts and mean times. Report repeated verified failures even when the trend is inconclusive; describe limited samples as such. Use the chosen reviewer for the next task unless the user selects another. Read `performance.recommendation` for the role and task class. For `recommend_change`, report the recommended model and effort, the current choice, and the verified acceptance counts and mean durations in the matching proposal. Mention the category and comparison window. For `evaluate_alternative`, explain the observed regression and the need for comparative evidence. For `collect` or `keep`, continue using the selected model. Disclose unavailable comparisons. Session and verification suggestions require recorded observations and manual selection. For personal Pareto suggestions
 and user-approved changes use `adaptive-models`; do not change models as part of
 recording outcomes. Session and verifier collection requires explicit capture or
 import; no global hooks are installed.

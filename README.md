@@ -1,7 +1,7 @@
 # arch-advisor
 
-This repository contains two independent packages: **Claude Code 6.5.0** at the
-repository root and **Codex 1.2.0** under [`codex/`](codex/README.md). The Codex
+This repository contains two independent packages: **Claude Code 6.5.3** at the
+repository root and **Codex 1.2.3** under [`codex/`](codex/README.md). The Codex
 variant keeps your selected Codex session model and adds routine/complex lanes
 plus a second opinion from Astra **or Claude**, configured through a local
 terminal menu without inference calls. Each package has its own marketplace and
@@ -65,7 +65,7 @@ claude plugin marketplace update arch-advisor
 claude plugin update arch-advisor@arch-advisor
 ```
 
-Restart Claude Code once to load version 6.5.0 and the native settings. Ubuntu uses
+Restart Claude Code once to load version 6.5.3 and the native settings. Ubuntu uses
 `timeout` from `coreutils`; no Homebrew is needed. If dependencies are missing:
 
 ```bash
