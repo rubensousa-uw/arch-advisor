@@ -281,26 +281,31 @@ def analyze(task_rows, role, context, metric, quota_key, min_samples, confidence
             unknown += 1
             continue
         groups[json.dumps(task["option"], sort_keys=True)].append(task)
-    # Simultaneous Wilson intervals reduce false promotions across many options.
-    z = NormalDist().inv_cdf(1 - (1 - confidence) / (2 * max(1, len(groups))))
     summaries = []
     for key, rows in sorted(groups.items()):
         n, success = len(rows), sum(r["outcome"] == "accepted" for r in rows)
         costs = [r[metric] for r in rows if r[metric] is not None and
                  (metric != "quota_units" or r["quota_key"] == quota_key)]
         summaries.append({"option": json.loads(key), "tasks": n, "accepted": success,
-                          "acceptance_rate": success / n, "quality_interval": wilson(success, n, z),
+                          "acceptance_rate": success / n,
                           "mean_resource": mean(costs) if len(costs) == n else None,
                           "resource_per_accepted_task": sum(costs) / success if success and len(costs) == n else None,
                           "attempts": sum(r["attempts"] for r in rows), "samples": costs,
                           "evidence": [{k: r[k] for k in ("task_id", "outcome", "evidence")} for r in rows],
                           "eligible_evidence": n >= min_samples and len(costs) == n})
-    observed = [r for r in summaries if r["mean_resource"] is not None]
-    frontier = [r for r in observed if not any(
+    eligible = [row for row in summaries if row["eligible_evidence"]]
+    for row in summaries:
+        count = len(eligible) if row["eligible_evidence"] else len(summaries)
+        z = NormalDist().inv_cdf(1 - (1 - confidence) / (2 * count))
+        row["quality_interval"] = wilson(row["accepted"], row["tasks"], z)
+    return summaries, eligible, unknown
+
+
+def personal_frontier(options):
+    return [r for r in options if not any(
         other["acceptance_rate"] >= r["acceptance_rate"] and other["mean_resource"] <= r["mean_resource"]
         and (other["acceptance_rate"] > r["acceptance_rate"] or other["mean_resource"] < r["mean_resource"])
-        for other in observed)]
-    return summaries, frontier, unknown
+        for other in options)]
 
 
 def saving_interval(baseline, candidate, confidence, seed):
@@ -373,16 +378,18 @@ def propose(args):
                 raise AdaptiveError("--current must contain provider, model and effort")
             valid_text(baseline_choice["model"], "current model")
         observations = [o for o in observations if (o["option"]["provider"], o["option"]["model"]) in allowed or o["option"] == baseline_choice]
-        groups, frontier, unknown = analyze(observations, args.role, args.context, args.metric, args.quota_key, args.min_samples, args.confidence)
-        baseline = next((g for g in groups if g["option"] == baseline_choice), None)
+        groups, eligible, unknown = analyze(observations, args.role, args.context, args.metric, args.quota_key, args.min_samples, args.confidence)
+        observed = [g for g in groups if g["mean_resource"] is not None]
+        baseline = next((g for g in eligible if g["option"] == baseline_choice), None)
         suggestions = []
-        for candidate in frontier:
+        for candidate in personal_frontier(eligible):
             choice = candidate["option"]
-            if (not baseline or choice == baseline_choice or not candidate["eligible_evidence"]
-                    or not baseline["eligible_evidence"] or (choice["provider"], choice["model"]) not in allowed):
+            if not baseline or choice == baseline_choice or (choice["provider"], choice["model"]) not in allowed:
                 continue
             quality_bound = candidate["quality_interval"][0] - baseline["quality_interval"][1]
-            interval = saving_interval(baseline["samples"], candidate["samples"], 1 - (1 - args.confidence) / max(1, len(groups)), digest([revision, choice]))
+            interval = saving_interval(baseline["samples"], candidate["samples"],
+                                       1 - (1 - args.confidence) / len(eligible),
+                                       digest([baseline["samples"], candidate["samples"]]))
             if quality_bound < -args.quality_margin or interval[0] <= 0:
                 continue
             proposal_id = digest([scope, args.role, args.context, args.metric, args.quota_key, baseline_choice, choice])[:20]
@@ -406,7 +413,7 @@ def propose(args):
               "quality_margin": args.quality_margin, "confidence": args.confidence,
               "current": baseline_choice, "unknown_outcomes": unknown,
               "options": [{k: v for k, v in g.items() if k != "samples"} for g in groups],
-              "personal_frontier": [g["option"] for g in frontier], "suggestions": suggestions,
+              "personal_frontier": [g["option"] for g in personal_frontier(observed)], "suggestions": suggestions,
               "auto_adjust": auto, "warnings": warnings + [
                   "Observational comparisons within one project/role/task class, not randomized causal evidence.",
                   "Tokens and API list-price estimates are not subscription quota; quota comparisons require the same quota_key.",

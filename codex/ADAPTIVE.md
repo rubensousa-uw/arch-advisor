@@ -100,7 +100,9 @@ combined. Missing metrics remain unknown, including unreported consumption from
 failed/partial invocations. Retries cannot silently discard their missing cost.
 
 The observed Pareto frontier maximizes acceptance rate and minimizes mean total
-resources per task. A change proposal additionally needs:
+resources per task. It includes options with complete measurements even after a
+single task. For proposals, the frontier and confidence adjustments use only
+options meeting the sample and measurement requirements below.
 
 - At least 10 assessed tasks per option in the last 30 days, within the same
   project, role and task class; every task must have the selected resource metric.

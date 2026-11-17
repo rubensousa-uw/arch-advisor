@@ -153,6 +153,20 @@ class AdaptiveTests(unittest.TestCase):
         self.assertEqual(report['personal_frontier'], [self.new])
         self.assertEqual(len(report['suggestions']), 1)
 
+    def test_single_observation_does_not_hide_supported_suggestion(self):
+        self.seed()
+        original, = self.propose()['suggestions']
+        newcomer = dict(self.new, model='one-task')
+        self.allowed.add((newcomer['provider'], newcomer['model']))
+        self.record(newcomer, outcome='accepted', duration_seconds=1)
+
+        report = self.propose()
+        self.assertEqual(report['personal_frontier'], [newcomer])
+        suggestion, = report['suggestions']
+        self.assertEqual(suggestion['to'], self.new)
+        self.assertEqual(suggestion['quality_difference_lower_bound'], original['quality_difference_lower_bound'])
+        self.assertEqual(suggestion['saving_interval'], original['saving_interval'])
+
     def test_proposal_does_not_change_models_until_accept_and_undo(self):
         self.seed()
         report = self.propose()
