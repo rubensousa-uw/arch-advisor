@@ -279,7 +279,8 @@ def quality_thresholds(data, minimums):
     return thresholds, len(scores)
 
 
-def lane_recommendations(frontier, host, thresholds):
+def lane_recommendations(frontier, host, thresholds, quotas=None):
+    from quota import tier
     specs = [
         ("session", "Session", "Architecture and coordination", [host],
          "/model", "Architecture, planning and coordination"),
@@ -300,9 +301,13 @@ def lane_recommendations(frontier, host, thresholds):
     for lane, component, role, providers, invocation, route_when in specs:
         threshold = thresholds[lane]
         eligible = [row for row in frontier if row["intelligence"] >= threshold["min_intelligence"]]
+        routes = [(tier(quotas or {}, a["provider"], a["model_id"]), row, a) for row in eligible for a in row["access"]]
+        best_tier = max((t for t, _, _ in routes if t >= 0), default=None)
+        eligible = [r for t, r, _ in routes if t == best_tier]
         selected = min(eligible, key=lambda r: (r["cost_per_task_usd"], -r["intelligence"], r["id"])) if eligible else None
         # Route support describes execution; it must never filter the ranking.
-        access = next((a for a in selected["access"] if a["provider"] in providers), selected["access"][0]) if selected else None
+        accesses = [a for t, r, a in routes if r is selected and t == best_tier]
+        access = next((a for a in accesses if a["provider"] in providers), accesses[0]) if accesses else None
         supported = bool(access and access["provider"] in providers)
         effort = re.search(r"\((low|medium|high|xhigh|max)(?:, [^()]*)?\)$", selected["name"], re.I) if selected else None
         result.append({"lane": lane, "component": component, "role": role,
@@ -310,28 +315,36 @@ def lane_recommendations(frontier, host, thresholds):
                        "invocation": invocation if supported else access["provider"] + " manually; plugin route unavailable" if access else "—",
                        "route_when": route_when, "model": selected, "access": access,
                        "benchmark_effort": effort.group(1).lower() if effort else None,
-                       "reason": "Cheapest Pareto model meeting the quality floor" if selected else
-                                 "No model in your active subscriptions meets this quality floor; no automatic downgrade"})
+                       "reason": "Cheapest eligible model meeting the quality floor within the preferred quota tier" if selected else
+                                 "No model in your active subscriptions meets this quality floor with usable quota; no automatic downgrade"})
     return result
 
 
-def report(data, entries, warnings, source, host="codex", minimums=None):
+def report(data, entries, warnings, source, host="codex", minimums=None, quotas=None):
     rows, skipped, unmatched = candidates(data["data"], entries)
     frontier = pareto(rows)
     if not frontier:
         raise RecommendationError("No matched models have both intelligence and cost per task. Check access IDs and AA coverage.")
+    from quota import tier
+    usable = []
+    for row in rows:
+        accesses = [a for a in row["access"] if tier(quotas or {}, a["provider"], a["model_id"]) >= 0]
+        if accesses:
+            usable.append(dict(row, access=accesses))
+    frontier = pareto(usable)
     thresholds, population_count = quality_thresholds(data, minimums if minimums is not None else MIN_PERCENTILES)
     return {"source": SOURCE, "data_source": source, "retrieved_at": datetime.now(timezone.utc).isoformat(),
             "intelligence_index_version": data["intelligence_index_version"],
             "axes": {"maximize": "intelligence", "minimize": "cost_per_task_usd"},
             "cost_basis": "AA benchmark API cost per task; NOT subscription price, quota or Go allowance consumption",
             "balance_method": "Equal-weight normalized distance to ideal intelligence/cost within the filtered frontier",
-            "recommendations": choices(frontier), "host": host,
-            "selection_method": "Cheapest Pareto model meeting each role's minimum intelligence percentile",
+            "recommendations": choices(frontier) if frontier else {}, "host": host,
+            "selection_method": "Meet each role's quality floor, prefer usable quota at a sustainable pace, then minimize AA cost",
             "quality_reference": {"population_count": population_count,
                                   "population": "All AA entries with valid Intelligence Index, including effort variants, before subscription filtering",
                                   "method": "Nearest-rank percentile of general intelligence, computed locally; not an AA coding percentile"},
-            "lane_recommendations": lane_recommendations(frontier, host, thresholds),
+            "subscription_quota": quotas or {},
+            "lane_recommendations": lane_recommendations(rows, host, thresholds, quotas),
             "frontier": frontier, "candidate_count": len(rows), "skipped": skipped, "unmatched": unmatched,
             "warnings": warnings + ["General Intelligence Index, not a coding-only ranking. Benchmark effort variants are shown; CLI support is not verified.",
                                       "Public catalogs do not prove subscription entitlement, remaining quota, region or privacy eligibility.",
@@ -342,6 +355,9 @@ def report(data, entries, warnings, source, host="codex", minimums=None):
 def print_report(value):
     print(f"\n{SOURCE}\nIndex v{value['intelligence_index_version']} | {value['data_source']} | {value['retrieved_at']}")
     print(value["cost_basis"])
+    for provider, reading in value.get("subscription_quota", {}).items():
+        detail = ", ".join(f"{w['name']} {w['remaining_percent']:g}% remaining until {datetime.fromtimestamp(w['resets_at'], timezone.utc):%Y-%m-%d %H:%M UTC}" for w in reading['windows'])
+        print(f"Quota {provider}: {reading['status']} {detail}")
     print(f"\nSuggested setup for the {value['host'].title()} plugin (not applied):")
     print("| Component | Role | Minimum quality | Suggested model (AA variant) | Access / model ID | Invocation | Route here when |")
     print("| --- | --- | --- | --- | --- | --- | --- |")
@@ -450,7 +466,11 @@ def run(args):
     catalog = read_json(args.catalog) if args.catalog else fetch_json(CATALOG_URL)
     entries, warnings = available_models(catalog, providers, read_json(args.available) if args.available else None)
     minimums = dict(MIN_PERCENTILES, **dict(args.min_percentile))
-    value = report(data, entries, warnings, f"local snapshot: {args.data}" if args.data else AA_URL, args.host, minimums)
+    import quota
+    quotas = quota.read(providers, offline=bool(args.catalog))
+    if "opencode" in quotas:
+        quotas["opencode"]["free_models"] = quota.free_go_models(catalog)
+    value = report(data, entries, warnings, f"local snapshot: {args.data}" if args.data else AA_URL, args.host, minimums, quotas)
     if args.json:
         print(json.dumps(value, indent=2, ensure_ascii=False))
     else:

@@ -85,7 +85,7 @@ def load_user():
     return validate(merge(defaults, saved)), saved
 
 
-def effective(workspace):
+def effective(workspace, context=None):
     config, _ = load_user()
     sources = [str(DEFAULTS)]
     if user_path().exists():
@@ -99,6 +99,11 @@ def effective(workspace):
     for path in paths:
         config = validate(merge(config, read_json(path)))
         sources.append(str(path))
+    import categories
+    try:
+        categories.apply(config, workspace, "codex", context)
+    except (ValueError, KeyError, TypeError) as error:
+        raise ConfigError("Invalid category configuration") from error
     return config, sources
 
 
@@ -461,7 +466,7 @@ def main():
         workspace = Path(args.cd).expanduser().resolve()
         if not workspace.is_dir():
             raise ConfigError(f"Workspace does not exist: {workspace}")
-        config, sources = effective(workspace)
+        config, sources = effective(workspace, getattr(args, "context", None))
         if args.action == "show":
             show(config, sources, args.json)
             return 0

@@ -23,7 +23,7 @@ library and local SQLite; no inference or AA key is needed. Read
    benchmark starting point, never as fabricated local evidence.
 4. Default mode makes no changes. Run `accept ID` or `reject ID` only for the user's
    decision on that concrete proposal (or their explicitly enabled auto-adjust
-   policy). Accepted supported changes are project-scoped; unsupported/session
+   policy). Accepted supported changes affect only the selected role and task category in the project; unsupported/session
    routes are recorded as accepted-manual without changing execution settings.
    `undo ID` restores an applied change only if the file has not since changed.
 5. Record outcomes with `feedback TASK_ID accepted|rejected|unknown --evidence REF`
@@ -36,3 +36,5 @@ provider/plan/unit key for quota comparisons. Default 10 samples, 30 days, 95%
 confidence and zero tolerated acceptance-rate loss are conservative policy
 settings, not learned truths; don't weaken them merely to obtain a suggestion.
 No hidden exploration calls, session hooks or scheduled background changes.
+
+For quota relief, show the source and target subscription windows, the reset times and the measured time tradeoff. Pass the same task class on subsequent executions.

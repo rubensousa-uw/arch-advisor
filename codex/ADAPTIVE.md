@@ -48,7 +48,7 @@ The orchestration coordinator records feedback after checking the result. Each f
 
 For the selected provider, model and effort, feedback reports verified acceptances, retries, and mean duration from the first assessed task. Within the same role, class, project and host it compares the ten latest assessed tasks by last attempt time with the ten immediately before them, all within 30 days. Unknown outcomes are counted separately. Directional signals use non-overlapping 95% Wilson intervals for acceptance and a bootstrap interval for elapsed time. These rolling observations can reflect a changing mix of tasks. Review the counts even when a difference is inconclusive. Monitoring uses just the chosen model.
 
-Feedback includes a category recommendation. A detected decline in the reference model’s acceptance or speed triggers a comparison of the latest ten assessed tasks per option in this class. Otherwise it uses up to 30 days of assessed work. An alternative qualifies under the existing time-saving policy or when its acceptance is demonstrably higher and the lower bound on time saved is at least zero. Among qualifying pending proposals, the strongest acceptance lower bound wins, with the savings lower bound breaking ties. If only the reference model has enough data and it declines, the advice is to evaluate an alternative; no untried model is reported as a proven upgrade. Applying a supported proposal manually changes the project’s lane default across task classes.
+Feedback includes a category recommendation. A detected decline in the reference model’s acceptance or speed triggers a comparison of the latest ten assessed tasks per option in this class. Otherwise it uses up to 30 days of assessed work. An alternative qualifies under the existing time-saving policy or when its acceptance is demonstrably higher and the lower bound on time saved is at least zero. Among qualifying pending proposals, the strongest acceptance lower bound wins, with the savings lower bound breaking ties. If only the reference model has enough data and it declines, the advice is to evaluate an alternative; no untried model is reported as a proven upgrade. Accepting a supported proposal selects its model only for the same project, host, role and exact task class.
 
 ## Suggest, accept, reject, undo
 
@@ -79,8 +79,12 @@ uncertainty instead of forcing a change. No AA key is needed for personal analys
 Acceptance rechecks the evidence, current configuration and current selected
 catalog; proposals expire after 24 hours. New evidence requires `suggest` again.
 Rejection stays recorded for that model pair, role, class and metric until you
-`reopen`. Acceptance changes only `.arch-advisor/codex.json` (Codex host) or
-`.arch-advisor/lanes.json` (Claude host), preserving other lane settings. Explicit
+`reopen`. Acceptance writes one file per host, role and class under `.arch-advisor/category-*.json`.
+Set `ARCH_ADVISOR_TASK_CLASS` before running a Claude lane; Codex also accepts
+`run ... --context CLASS` and `opinion --context CLASS`. An unlabelled task uses
+the literal class `general`. Each class falls back to the configured lane until
+it has an accepted preference. Undo restores only the matching file. Preferences
+written by older releases keep their original scope and undo information. Explicit
 configuration overrides and symlinks are refused. Configuration writes are atomic;
 undo refuses to overwrite subsequent edits. Keep generated project preferences
 out of version control unless you intend to share them.
@@ -139,8 +143,39 @@ your subscription bill. Codex usage events provide tokens but no reliable
 per-task subscription quota. OpenCode normalized terminal usage can provide
 `usage.opencode.allowance` for Go, kept under a provider/plan-specific unit key.
 The helper never infers task quota from shared account-wide reset counters.
-No adapter polls remaining allowances, changes subscriptions or schedules work
-around resets in this version.
+### Remaining quota and resets
+
+Both live recommenders check the selected subscriptions. Inspect the same readings with
+`python3 scripts/adaptive.py quota --providers claude codex opencode`.
+
+- Codex reads `account/rateLimits/read` through the authenticated local app-server.
+- Claude Code supplies `rate_limits` in its [status line](https://code.claude.com/docs/en/statusline).
+  Feed its JSON stdin to `python3 /absolute/path/to/scripts/adaptive.py claude-quota`.
+  For an existing shell status line that reads into a variable, add
+  `printf '%s' "$input" | python3 /absolute/path/to/scripts/adaptive.py claude-quota`
+  after reading stdin. Only the five-hour and seven-day windows are cached, for 15 minutes.
+  For a new status line use the settings example below, replacing the path.
+- OpenCode Go reads the [Go usage endpoint](https://opencode.ai/docs/console/go/#usage)
+  using `OPENCODE_GO_API_KEY` from the environment. Confirmed zero-price catalog models
+  remain candidates when the shared Go allowance is exhausted.
+
+```json
+{"statusLine":{"type":"command","command":"python3 /absolute/path/to/scripts/adaptive.py claude-quota --display"}}
+```
+
+For each window, the policy compares the fraction remaining with the fraction of
+time left until reset. The tightest window determines the tier. For example, 20%
+left with ten minutes to go in a five-hour window is on pace; 20% with four hours
+to go is under pressure. The Go monthly pacing estimate uses a 30-day period.
+Known on-pace routes rank ahead of under-pressure routes, followed by unknown routes.
+Exhausted routes are excluded. Errors, expired readings and offline catalogs give
+unknown quota. Reported reset times never imply a successful refill.
+When all readings are unknown, the original evidence/AA selection applies.
+The AA quality floor still applies. Personal proposals still require comparative
+samples and the quality bound. A qualifying move from an exhausted or under-pressure
+subscription to a better tier can trade speed for quota; its reason is
+`quota_relief`. Acceptance checks the quota again. A quota-based acceptance is a
+persistent choice for that category; a reset alone does not change the model.
 
 ## Optional auto-adjust
 
@@ -152,7 +187,7 @@ python3 /path/to/plugin/scripts/adaptive.py auto-adjust disable
 
 Off by default, scoped to this project and host. Enabling prints a warning and
 requires `--acknowledge`. When enabled, **running `suggest` can change a supported
-project lane**, using that command's evidence policy and subscription selection.
+model for that category**, using that command's evidence policy and subscription selection.
 It prints another warning and applies at most one qualifying proposal. Rejected
 proposals, manual routes and offline `--catalog` snapshots are never auto-applied.
 There is no daemon or scheduled polling; collect/feedback never change models.

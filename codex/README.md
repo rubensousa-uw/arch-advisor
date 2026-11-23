@@ -1,4 +1,4 @@
-# Arch Advisor for Codex — 1.2.3
+# Arch Advisor for Codex — 1.3.0
 
 The Codex session coordinates architecture, specifications, verification and
 acceptance. Choose its model and effort in Codex itself. The packaged workflow
@@ -27,7 +27,7 @@ Pareto comparison uses actual outcomes and resources for comparable tasks, with
 retries included. It filters your active subscriptions and available models.
 
 No models change by default. Review each suggestion, then accept or reject it;
-accepted native lane changes are project-scoped and can be undone. Optional
+accepted native lane changes apply to one task category in the project and can be undone. Optional
 `auto-adjust` requires an explicit warning acknowledgment and only runs when you
 request suggestions. AA remains the benchmark starting point when local evidence
 is insufficient; its percentile settings are not learned from your usage.
@@ -65,11 +65,11 @@ Claude scripts or settings.
 
 ## Configure directly, without a model
 
-Use the `installedPath` returned at installation. For version 1.2.3 and the
+Use the `installedPath` returned at installation. For version 1.3.0 and the
 default Codex home:
 
 ```sh
-ADVISOR_RUNNER="$HOME/.codex/plugins/cache/arch-advisor-codex/arch-advisor/1.2.3/scripts/advisor.py"
+ADVISOR_RUNNER="$HOME/.codex/plugins/cache/arch-advisor-codex/arch-advisor/1.3.0/scripts/advisor.py"
 python3 "$ADVISOR_RUNNER" configure
 ```
 

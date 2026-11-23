@@ -16,6 +16,7 @@ from urllib.error import HTTPError, URLError
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "codex/scripts/recommend.py"
+sys.path.insert(0, str(SCRIPT.parent))
 spec = importlib.util.spec_from_file_location("recommend", SCRIPT)
 recommend = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(recommend)
