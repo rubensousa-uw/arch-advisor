@@ -20,6 +20,9 @@ import advisor
 
 class AdaptiveTests(unittest.TestCase):
     def setUp(self):
+        readings = patch("quota.provider_read", side_effect=ValueError("offline test"))
+        readings.start()
+        self.addCleanup(readings.stop)
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.base = Path(self.temp.name)
@@ -303,11 +306,54 @@ class AdaptiveTests(unittest.TestCase):
             adaptive.accept(self.args, item['id'], self.allowed)
         self.assertEqual(adaptive.current(self.work, 'codex', 'routine'), changed)
 
+    def test_accept_resolves_only_matching_category_through_both_runners(self):
+        for host in ('claude', 'codex'):
+            self.args.host = host
+            self.args.context = 'tests/python'
+            baseline = adaptive.current(self.work, host, 'routine')
+            self.allowed.add(('codex', baseline['model']))
+            for i in range(40):
+                self.record(baseline, outcome='accepted' if i % 2 else 'rejected', context=self.args.context, duration_seconds=100)
+                self.record(self.new, outcome='accepted', context=self.args.context, duration_seconds=20)
+            item = self.propose()['suggestions'][0]
+            applied = adaptive.accept(self.args, item['id'], self.allowed)
+            self.assertEqual(applied['context'], 'tests/python')
+            for context, choice in [('tests/python', self.new), ('general', baseline), ('tests/js', baseline)]:
+                if host == 'codex':
+                    cli = [sys.executable, str(ROOT/'codex/scripts/advisor.py'), 'run', 'routine', '--context', context]
+                else:
+                    cli = [str(ROOT/'scripts/run-lane.sh'), 'routine', '--sandbox', 'read-only']
+                env = dict(os.environ, ARCH_ADVISOR_TASK_CLASS=context if host == 'claude' else 'ignored-env-class')
+                result = subprocess.run(cli + ['--cd', str(self.work), '--dry-run'], env=env, text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(choice['model'], result.stdout)
+            self.args.id, self.args.action = item['id'], 'undo'
+            adaptive.decide(self.args)
+            self.assertEqual(adaptive.current(self.work, host, 'routine', self.args.context), baseline)
+
+    def test_quota_relief_cross_provider_and_recheck(self):
+        self.args.role = 'second-opinion'
+        base = adaptive.current(self.work, 'codex', self.args.role)
+        candidate = dict(provider='claude', model='claude-example', effort='high')
+        self.allowed = {(c['provider'], c['model']) for c in (candidate, base)}
+        for i in range(40):
+            self.record(base, role=self.args.role, outcome='accepted' if i % 2 else 'rejected', duration_seconds=10)
+            self.record(candidate, role=self.args.role, outcome='accepted', duration_seconds=20)
+        readings = {'codex': {'status':'exhausted'}, 'claude': {'status':'available','pace':1.5}}
+        with patch.object(adaptive, 'quota_readings', return_value=readings):
+            item = self.propose()['suggestions'][0]
+            self.assertEqual(item['reason'], 'quota_relief')
+            readings['claude'] = {'status':'exhausted'}
+            with self.assertRaisesRegex(adaptive.AdaptiveError, 'quota changed'):
+                adaptive.accept(self.args, item['id'], self.allowed)
+            self.assertEqual(self.propose()['suggestions'], [])
+
     def test_changed_configuration_is_not_overwritten(self):
         self.seed()
         item = self.propose()['suggestions'][0]
         adaptive.accept(self.args, item['id'], self.allowed)
-        target = self.work / '.arch-advisor/codex.json'
+        from categories import category_path
+        target = category_path(self.work, 'codex', 'routine', 'general')
         target.write_text(target.read_text() + '\n')
         self.args.id, self.args.action = item['id'], 'undo'
         with self.assertRaises(adaptive.AdaptiveError):

@@ -1,6 +1,6 @@
 {
   "name": "arch-advisor",
-  "version": "6.5.3",
+  "version": "6.6.0",
   "description": "Native model and effort settings in Claude Code /config for routine, complex and second-opinion Codex lanes. Your Claude session model stays under /model.",
   "author": {
     "name": "Ruben Sousa",

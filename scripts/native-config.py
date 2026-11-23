@@ -70,7 +70,10 @@ if __name__ == '__main__':
     try:
         if len(sys.argv) not in (2, 3):
             raise ValueError('Usage: native-config.py CONFIG [LANE]')
-        print(json.dumps(effective(Path(sys.argv[1]), sys.argv[2] if len(sys.argv) == 3 else None)))
+        sys.path.insert(0, str(ROOT / 'codex/scripts'))
+        import categories
+        config = effective(Path(sys.argv[1]), sys.argv[2] if len(sys.argv) == 3 else None)
+        print(json.dumps(categories.apply(config, Path.cwd(), 'claude')))
     except (ValueError, KeyError, TypeError, OSError) as error:
         print(f'arch-advisor: {error}', file=sys.stderr)
         sys.exit(3)

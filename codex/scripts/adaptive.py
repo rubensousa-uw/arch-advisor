@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Local task evidence, personal Pareto frontiers and reviewable project changes."""
 import argparse
+import quota
 from collections import defaultdict
 from contextlib import contextmanager
 import hashlib
@@ -308,6 +309,15 @@ def personal_frontier(options):
         for other in options)]
 
 
+def quota_frontier(groups, allowed, readings):
+    viable = [g for g in groups if (g["option"]["provider"], g["option"]["model"]) in allowed]
+    result = []
+    for level in (2, 1, 0):
+        peers = [g for g in viable if option_tier(readings, g["option"]) >= level]
+        result.extend(g for g in personal_frontier(peers) if option_tier(readings, g["option"]) == level)
+    return result
+
+
 def performance_trend(observations, task):
     comparable = [row for row in observations if row["option"] == task["option"]
                   and row["role"] == task["role"] and row["context"] == task["context"]]
@@ -359,6 +369,7 @@ def feedback_summary(workspace, host, task_id, parser):
                                   "--role", task["role"], "--context", task["context"], "--report-only"])
         try:
             comparison = propose(args, feedback_task=task)
+            summary["subscription_quota"] = comparison["subscription_quota"]
             summary["suggestions"] = comparison["suggestions"]
             decision["from"] = comparison["current"]
             decision["window"] = comparison["comparison_window"]
@@ -370,7 +381,7 @@ def feedback_summary(workspace, host, task_id, parser):
                 decision["action"] = "collect"
             pending = [p for p in summary["suggestions"] if p["status"] == "pending"]
             if pending:
-                best = max(pending, key=lambda p: (p["quality_difference_lower_bound"], p["saving_interval"][0]))
+                best = pending[0]
                 decision.update(action="recommend_change", to=best["to"], reason=best["reason"],
                                 proposal_id=best["id"])
         except (AdaptiveError, OSError, ValueError, sqlite3.Error, subprocess.SubprocessError):
@@ -387,13 +398,13 @@ def saving_interval(baseline, candidate, confidence, seed):
     return [values[int(tail * len(values))], values[min(len(values) - 1, int((1 - tail) * len(values)))]]
 
 
-def current(workspace, host, role):
+def current(workspace, host, role, context="general"):
     if role not in ("routine", "complex", "second-opinion"):
         return None
     if host == "codex":
         import advisor
         try:
-            config, _ = advisor.effective(Path(workspace).resolve())
+            config, _ = advisor.effective(Path(workspace).resolve(), context)
             provider, model, effort, _ = advisor.selection(config, role)
         except advisor.ConfigError as error:
             raise AdaptiveError(str(error)) from None
@@ -404,7 +415,7 @@ def current(workspace, host, role):
     path = subprocess.run([str(scripts / "lane.sh"), "config-path"], cwd=workspace, capture_output=True, text=True, check=True).stdout.strip()
     key = "2nd-advisor" if role == "second-opinion" else role
     raw = subprocess.run([sys.executable, str(scripts / "native-config.py"), path, key], cwd=workspace,
-                         capture_output=True, text=True, check=True)
+                         env=dict(os.environ, ARCH_ADVISOR_TASK_CLASS=context), capture_output=True, text=True, check=True)
     entry = json.loads(raw.stdout)["lanes"][key]
     return {"provider": "codex", "model": entry["model"], "effort": entry.get("default_effort")}
 
@@ -426,6 +437,7 @@ def availability(args):
         entries, warnings = recommend.available_models(catalog, providers, override)
     except recommend.RecommendationError as error:
         raise AdaptiveError(str(error)) from None
+    args.free_go = quota.free_go_models(catalog)
     return {(r["provider"], r["model_id"]) for r in entries}, warnings
 
 
@@ -434,12 +446,24 @@ def supported(host, role, choice):
         choice["provider"] == "codex" or host == "codex" and role == "second-opinion" and choice["provider"] == "claude")
 
 
+def quota_readings(args, allowed):
+    readings = quota.read({p for p, _ in allowed}, offline=bool(args.catalog))
+    if "opencode" in readings:
+        readings["opencode"]["free_models"] = getattr(args, "free_go", [])
+    return readings
+
+
+def option_tier(readings, option):
+    return quota.tier(readings, option["provider"], option["model"])
+
+
 def propose(args, *, feedback_task=None):
     allowed, warnings = availability(args)
+    quotas = quota_readings(args, allowed)
     scope = scope_id(args.cd, args.host)
     with connect() as db:
         observations, revision = tasks(db, scope, args.days)
-        baseline_choice = current(args.cd, args.host, args.role)
+        baseline_choice = current(args.cd, args.host, args.role, args.context)
         if baseline_choice is None and feedback_task is not None:
             latest = max((o for o in observations if o["role"] == args.role and o["context"] == args.context),
                          key=lambda o: (o["last_attempt_at"], o["task_id"]), default=feedback_task)
@@ -467,7 +491,8 @@ def propose(args, *, feedback_task=None):
         observed = [g for g in groups if g["mean_resource"] is not None]
         baseline = next((g for g in eligible if g["option"] == baseline_choice), None)
         suggestions = []
-        for candidate in personal_frontier(eligible):
+        for candidate in quota_frontier(eligible, allowed, quotas):
+            candidate_tier = option_tier(quotas, candidate["option"])
             choice = candidate["option"]
             if not baseline or choice == baseline_choice or (choice["provider"], choice["model"]) not in allowed:
                 continue
@@ -477,13 +502,17 @@ def propose(args, *, feedback_task=None):
                                        digest([baseline["samples"], candidate["samples"]]))
             faster = interval[0] > 0 and quality_bound >= -args.quality_margin
             better_quality = feedback_task is not None and quality_bound > 0 and interval[0] >= 0
-            if not (faster or better_quality):
+            base_tier = option_tier(quotas, baseline_choice)
+            quota_relief = (candidate_tier > max(0, base_tier) and base_tier in (-1, 1)
+                            and quality_bound >= -args.quality_margin)
+            if candidate_tier < base_tier or not (faster or better_quality or quota_relief):
                 continue
             proposal_id = digest([scope, args.role, args.context, args.metric, args.quota_key, baseline_choice, choice])[:20]
             value = {"id": proposal_id, "host": args.host, "role": args.role, "context": args.context,
                      "from": baseline_choice, "to": choice, "revision": revision, "days": args.days,
                      "metric": args.metric, "quota_key": args.quota_key, "quality_margin": args.quality_margin,
-                     "reason": "resource_saving" if faster else "higher_acceptance", "comparison_window": comparison_window,
+                     "subscription_quota": quotas, "quota_tier": candidate_tier,
+                     "reason": "quota_relief" if quota_relief else "resource_saving" if faster else "higher_acceptance", "comparison_window": comparison_window,
                      "confidence": args.confidence, "quality_difference_lower_bound": quality_bound,
                      "saving_interval": interval, "baseline": {k: v for k, v in baseline.items() if k != "samples"},
                      "candidate": {k: v for k, v in candidate.items() if k != "samples"},
@@ -494,15 +523,16 @@ def propose(args, *, feedback_task=None):
                 db.execute("INSERT OR REPLACE INTO proposals VALUES (?,?,?,?,?)", (proposal_id, scope, status, json.dumps(value), time.time()))
             value["status"] = status
             suggestions.append(value)
+        suggestions.sort(key=lambda p: (p["quota_tier"], p["quality_difference_lower_bound"], p["saving_interval"][0]), reverse=True)
         policy = db.execute("SELECT enabled FROM policies WHERE scope=?", (scope,)).fetchone()
         auto = bool(policy and policy[0])
     result = {"role": args.role, "context": args.context, "metric": args.metric,
               "min_samples": args.min_samples, "window_days": args.days,
               "quality_margin": args.quality_margin, "confidence": args.confidence,
-              "current": baseline_choice, "unknown_outcomes": unknown,
+              "subscription_quota": quotas, "current": baseline_choice, "unknown_outcomes": unknown,
               "comparison_window": comparison_window, "can_compare": baseline is not None and len(eligible) >= 2,
               "options": [{k: v for k, v in g.items() if k != "samples"} for g in groups],
-              "personal_frontier": [g["option"] for g in personal_frontier(observed)], "suggestions": suggestions,
+              "personal_frontier": [g["option"] for g in quota_frontier(observed, allowed, quotas)], "suggestions": suggestions,
               "auto_adjust": auto, "warnings": warnings + [
                   "Observational comparisons within one project/role/task class, not randomized causal evidence.",
                   "Tokens and API list-price estimates are not subscription quota; quota comparisons require the same quota_key.",
@@ -514,7 +544,7 @@ def propose(args, *, feedback_task=None):
         # One change per analysis; never chain promotions from an old baseline.
         pending = [p for p in suggestions if p["status"] == "pending" and p["route_supported"]]
         if pending and not args.catalog:
-            winner = max(pending, key=lambda p: p["saving_interval"][0])
+            winner = pending[0]
             result["auto_applied"] = accept(args, winner["id"], allowed)
     return result
 
@@ -533,42 +563,21 @@ def atomic_write(path, data):
             os.unlink(tmp)
 
 
-def change_project(workspace, host, role, choice):
+def change_project(workspace, host, role, choice, context="general"):
+    from categories import category_path
     if not supported(host, role, choice):
         raise AdaptiveError("This provider/role has no execution route; apply the suggestion manually")
     if os.environ.get("ARCH_ADVISOR_CONFIG") or os.environ.get("ARCH_ADVISOR_CODEX_CONFIG"):
         raise AdaptiveError("Explicit configuration override is active; refusing to write an ineffective project preference")
-    target = Path(workspace).resolve() / ".arch-advisor" / ("codex.json" if host == "codex" else "lanes.json")
+    target = category_path(Path(workspace).resolve(), host, role, context)
     if target.is_symlink() or target.parent.is_symlink():
         raise AdaptiveError("Refusing to replace a symlinked project configuration")
     before = target.read_text() if target.exists() else None
-    data = json.loads(before) if before is not None else {}
-    if host == "codex":
-        import advisor
-        lane = data.setdefault("lanes", {}).setdefault(role, {})
-        if role == "second-opinion":
-            lane["provider"] = choice["provider"]
-            lane = lane.setdefault(choice["provider"], {})
-        lane.update(model=choice["model"], effort=choice["effort"])
-        try:
-            config, _ = advisor.load_user()
-            advisor.validate(advisor.merge(config, data))
-        except advisor.ConfigError as error:
-            raise AdaptiveError(str(error)) from None
-    else:
-        if before is None:
-            scripts = ROOT.parent / "scripts"
-            path = subprocess.run([str(scripts / "lane.sh"), "config-path"], cwd=workspace, capture_output=True, text=True, check=True).stdout.strip()
-            raw = subprocess.run([sys.executable, str(scripts / "native-config.py"), path], cwd=workspace,
-                                 capture_output=True, text=True, check=True)
-            data = json.loads(raw.stdout)
-            for entry in data["lanes"].values():
-                entry.pop("_native_options_source", None)
-        key = "2nd-advisor" if role == "second-opinion" else role
-        lane = data["lanes"][key]
-        if choice["effort"] is not None and choice["effort"] not in (lane.get("efforts") or []):
-            raise AdaptiveError("Suggested effort is not declared in this lane; update its allowlist explicitly")
-        lane.update(model=choice["model"], default_effort=choice["effort"])
+    if host == "claude" and choice["effort"]:
+        script = ROOT.parent / "scripts/lane.sh"
+        subprocess.run([str(script), "validate", role, choice["effort"]], cwd=workspace,
+                       env=dict(os.environ, ARCH_ADVISOR_TASK_CLASS=context), check=True, capture_output=True)
+    data = dict(choice, host=host, role=role, context=context)
     after = json.dumps(data, indent=2) + "\n"
     atomic_write(target, after.encode())
     return {"before": before, "after_hash": digest(after), "filename": target.name}
@@ -576,6 +585,7 @@ def change_project(workspace, host, role, choice):
 
 def accept(args, proposal_id, allowed=None):
     allowed = allowed if allowed is not None else availability(args)[0]
+    quotas = quota_readings(args, allowed)
     scope = scope_id(args.cd, args.host)
     with connect() as db:
         db.execute("BEGIN IMMEDIATE")
@@ -586,15 +596,20 @@ def accept(args, proposal_id, allowed=None):
         _, revision = tasks(db, scope, value["days"])
         if revision != value["revision"] or time.time() - value["generated_at"] > 86400:
             raise AdaptiveError("Evidence changed or proposal expired; run suggest again")
-        if value["role"] in ("routine", "complex", "second-opinion") and current(args.cd, args.host, value["role"]) != value["from"]:
+        if value["role"] in ("routine", "complex", "second-opinion") and current(args.cd, args.host, value["role"], value["context"]) != value["from"]:
             raise AdaptiveError("Current lane changed since the suggestion; run suggest again")
         if (value["to"]["provider"], value["to"]["model"]) not in allowed:
             raise AdaptiveError("Suggested model is no longer in the selected available catalog")
+        target_tier = option_tier(quotas, value["to"])
+        origin_tier = option_tier(quotas, value["from"])
+        if (target_tier < 0 or target_tier < value.get("quota_tier", 0) or target_tier < origin_tier
+                or value.get("reason") == "quota_relief" and not (origin_tier in (-1, 1) and target_tier > max(0, origin_tier))):
+            raise AdaptiveError("Subscription quota changed; run suggest again")
         if not value["route_supported"]:
             db.execute("UPDATE proposals SET status='accepted-manual',updated=? WHERE id=?", (time.time(), proposal_id))
-            return {"id": proposal_id, "status": "accepted-manual", "to": value["to"],
-                    "instruction": "No configuration changed. Select this model/effort manually in the target application."}
-        value["application"] = change_project(args.cd, args.host, value["role"], value["to"])
+            return {"id": proposal_id, "status": "accepted-manual", "context": value["context"], "role": value["role"], "to": value["to"],
+                    "instruction": "No configuration changed. Select this model/effort manually for tasks in the indicated category."}
+        value["application"] = change_project(args.cd, args.host, value["role"], value["to"], value["context"])
         try:
             db.execute("UPDATE proposals SET status='accepted',payload=?,updated=? WHERE id=?", (json.dumps(value), time.time(), proposal_id))
             db.commit()
@@ -607,7 +622,7 @@ def accept(args, proposal_id, allowed=None):
                 else:
                     atomic_write(target, application["before"].encode())
             raise
-    return {"id": proposal_id, "status": "accepted", "from": value["from"], "to": value["to"], "scope": "project"}
+    return {"id": proposal_id, "status": "accepted", "from": value["from"], "to": value["to"], "scope": "category", "context": value["context"]}
 
 
 def decide(args):
@@ -650,6 +665,10 @@ def main(argv=None, default_host="codex"):
     capture_parser.add_argument("--task-id")
     capture_parser.add_argument("--context")
     capture_parser.add_argument("command", nargs=argparse.REMAINDER)
+    claude_quota = sub.add_parser("claude-quota", help="Read Claude status-line JSON from stdin and cache subscription windows")
+    claude_quota.add_argument("--display", action="store_true", help="Show remaining percentages on the Claude status line")
+    check = sub.add_parser("quota", help="Inspect live subscription windows without inference")
+    check.add_argument("--providers", nargs="+", choices=PROVIDERS, required=True)
     importer = sub.add_parser("record", help="Import one normalized observation; no prompts or responses")
     importer.add_argument("file", type=Path)
     outcome = sub.add_parser("feedback", help="Record verified terminal task outcome")
@@ -660,7 +679,7 @@ def main(argv=None, default_host="codex"):
     listing.add_argument("--days", type=int, default=30)
     suggestion = sub.add_parser("suggest", help="Personal frontier and evidence-backed change proposals")
     suggestion.add_argument("--role", choices=ROLES, required=True)
-    suggestion.add_argument("--context", default="general")
+    suggestion.add_argument("--context", default=os.environ.get("ARCH_ADVISOR_TASK_CLASS", "general"))
     suggestion.add_argument("--report-only", action="store_true", help="Report suggestions without applying model changes")
     suggestion.add_argument("--current", type=Path, help="JSON provider/model/effort for a manually selected session or verifier")
     suggestion.add_argument("--metric", choices=METRICS, default="duration_seconds")
@@ -687,7 +706,14 @@ def main(argv=None, default_host="codex"):
             raise AdaptiveError("Workspace does not exist")
         if args.action == "capture":
             return capture(args)
-        if args.action == "record":
+        if args.action == "claude-quota":
+            windows = quota.save_claude(json.load(sys.stdin))
+            if args.display:
+                print(" | ".join(f"{w['name']} {w['remaining_percent']:g}% left" for w in windows) or "Claude")
+            return 0
+        if args.action == "quota":
+            value = quota.read(args.providers)
+        elif args.action == "record":
             value = record(args.cd, args.host, json.loads(args.file.read_text()))
         elif args.action == "feedback":
             feedback(args.cd, args.host, args.task_id, args.outcome, args.evidence)
@@ -712,7 +738,7 @@ def main(argv=None, default_host="codex"):
         else:
             scope = scope_id(args.cd, args.host)
             if args.mode == "enable":
-                print("WARNING: AUTO-ADJUST will change supported project lane models when suggest finds sufficient evidence. Session models and unsupported routes are never changed. Use undo to revert, or auto-adjust disable to stop.", file=sys.stderr)
+                print("WARNING: AUTO-ADJUST will change the supported model for the proposed task category when suggest finds sufficient evidence. Session models and unsupported routes are never changed. Use undo to revert, or auto-adjust disable to stop.", file=sys.stderr)
                 if not args.acknowledge:
                     raise AdaptiveError("Enabling requires --acknowledge after reading the warning")
             with connect() as db:

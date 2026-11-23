@@ -61,3 +61,5 @@ For recommendations based on the user's measured outcomes and resource use, use
 are heuristic policy defaults and are not automatically calibrated from usage.
 Keep local evidence distinct from AA scores and never substitute benchmark prices
 for measured subscription allowance.
+
+Use the quota-aware lane results returned by the helper. Show the limiting window and reset when quota affects the choice. Treat unknown readings as unknown.
